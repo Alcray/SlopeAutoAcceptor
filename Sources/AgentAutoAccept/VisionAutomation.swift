@@ -767,6 +767,15 @@ enum CursorTabDirection {
     case next
     case previous
 
+    var displayName: String {
+        switch self {
+        case .next:
+            return "cmd+shift+]"
+        case .previous:
+            return "cmd+shift+["
+        }
+    }
+
     var keyCode: CGKeyCode {
         switch self {
         case .next:
@@ -778,6 +787,21 @@ enum CursorTabDirection {
 }
 
 final class KeyboardShortcutService {
+    private enum ModifierKey {
+        case command
+        case shift
+
+        var keyCode: CGKeyCode {
+            switch self {
+            case .command:
+                return 55
+            case .shift:
+                return 56
+            }
+        }
+
+    }
+
     func pressCursorTabShortcut(_ direction: CursorTabDirection) throws {
         guard MousePermission.hasAccess else {
             throw KeyboardShortcutError.noAccessibility
@@ -788,22 +812,48 @@ final class KeyboardShortcutService {
             throw KeyboardShortcutError.eventSourceMissing
         }
 
+        try postModifier(.command, isDown: true, flags: [.maskCommand], source: source)
+        usleep(20_000)
+        try postModifier(.shift, isDown: true, flags: [.maskCommand, .maskShift], source: source)
+        usleep(30_000)
+        try postKey(direction.keyCode, flags: [.maskCommand, .maskShift], source: source)
+        usleep(25_000)
+        try postModifier(.shift, isDown: false, flags: [.maskCommand], source: source)
+        usleep(20_000)
+        try postModifier(.command, isDown: false, flags: [], source: source)
+    }
+
+    private func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags, source: CGEventSource) throws {
         guard
-            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: direction.keyCode, keyDown: true),
-            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: direction.keyCode, keyDown: false)
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
         else {
             throw KeyboardShortcutError.eventCreationFailed
         }
 
-        let flags = CGEventFlags(
-            rawValue: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue
-        )
         keyDown.flags = flags
         keyUp.flags = flags
-
         keyDown.post(tap: .cghidEventTap)
         usleep(45_000)
         keyUp.post(tap: .cghidEventTap)
+    }
+
+    private func postModifier(
+        _ modifier: ModifierKey,
+        isDown: Bool,
+        flags: CGEventFlags,
+        source: CGEventSource
+    ) throws {
+        guard let event = CGEvent(
+            keyboardEventSource: source,
+            virtualKey: modifier.keyCode,
+            keyDown: isDown
+        ) else {
+            throw KeyboardShortcutError.eventCreationFailed
+        }
+
+        event.flags = flags
+        event.post(tap: .cghidEventTap)
     }
 }
 
@@ -995,7 +1045,7 @@ final class VisionAutomationEngine {
             }
 
             try keyboardShortcutService.pressCursorTabShortcut(.next)
-            emit("Cursor tab sweep moved right to tab \(tabIndex + 2)/\(tabCount).")
+            emit("Posted \(CursorTabDirection.next.displayName); waiting \(format(tabChangeInterval))s before scanning tab \(tabIndex + 2)/\(tabCount).")
             try await sleep(seconds: tabChangeInterval)
         }
 
@@ -1006,7 +1056,7 @@ final class VisionAutomationEngine {
 
         for moveIndex in 0..<rightMoves {
             try keyboardShortcutService.pressCursorTabShortcut(.previous)
-            emit("Cursor tab sweep returning left \(moveIndex + 1)/\(rightMoves).")
+            emit("Posted \(CursorTabDirection.previous.displayName); returning left \(moveIndex + 1)/\(rightMoves).")
             try await sleep(seconds: tabChangeInterval)
         }
 
