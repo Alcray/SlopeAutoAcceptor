@@ -49,7 +49,7 @@ Raise it if the app clicks too eagerly. Lower it only if the OCR result is visib
 
 - **Run Once** performs one scan and click attempt.
 - **Run Tabs** is Cursor-specific and stays disabled until **Change Cursor Tabs** is enabled. It scans and clicks the current tab, presses `cmd + shift + ]` for each additional tab, scans and clicks each one, then presses `cmd + shift + [` the same number of times to return to the starting tab.
-- **Live** scans repeatedly at the configured interval.
+- **Live** scans repeatedly at the configured interval. When **Change Cursor Tabs** is enabled and **Cursor Tabs** is greater than `1`, each Live cycle performs the same tab sweep as **Run Tabs**.
 - **Paused** stops scanning.
 
 Always test with **Run Once** before switching to **Live**.

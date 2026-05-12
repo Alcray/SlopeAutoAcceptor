@@ -1090,6 +1090,12 @@ final class VisionAutomationEngine {
     }
 
     private func runCycle(settings: VisionAutomationSettings, trigger: String) async throws {
+        if settings.isCursorTabSwitchingEnabled, settings.cursorTabCount > 1, trigger != "manual" {
+            emit("Live \(trigger) is using Cursor tab sweep because Change Cursor Tabs is enabled.")
+            try await runCursorTabSweep(settings: settings)
+            return
+        }
+
         _ = try await scanAndClick(settings: settings, trigger: trigger)
     }
 

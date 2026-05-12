@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showControlWindow()
 
         appendEvent(startupStatusText())
+        appendEvent("Controls ready: Pick Region, Show Region, Run Once, Run Tabs.")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -152,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.mode = mode
         persistSettings()
         automationEngine.apply(settings: settings)
-        appendEvent("Mode switched to \(mode.displayName). Target labels: \(settings.targetLabel).")
+        appendEvent(modeChangeText(mode))
         refreshUI()
     }
 
@@ -334,6 +335,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .paused:
             return "Paused"
         case .live:
+            if settings.isCursorTabSwitchingEnabled, settings.cursorTabCount > 1 {
+                return isRunInProgress ? "Live (Sweeping Tabs)" : "Live (Tab Sweep Waiting)"
+            }
+
             return isRunInProgress ? "Live (Scanning)" : "Live (Waiting)"
         }
     }
@@ -383,6 +388,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screenRecording = ScreenCapturePermission.hasAccess ? "granted" : "missing"
         let tabSwitching = settings.isCursorTabSwitchingEnabled ? "on" : "off"
         return "Ready. Version: \(AppVersion.current.detailedText). Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Cursor tab switching: \(tabSwitching). Cursor tabs: \(settings.cursorTabCount). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
+    }
+
+    private func modeChangeText(_ mode: AutomationMode) -> String {
+        var text = "Mode switched to \(mode.displayName). Target labels: \(settings.targetLabel)."
+        if mode == .live, settings.isCursorTabSwitchingEnabled, settings.cursorTabCount > 1 {
+            text += " Live tab sweep enabled: \(settings.cursorTabCount) tabs, \(String(format: "%.2f", settings.cursorTabChangeInterval))s tab delay."
+        }
+        return text
     }
 
     private func terminateDuplicateCopies() {

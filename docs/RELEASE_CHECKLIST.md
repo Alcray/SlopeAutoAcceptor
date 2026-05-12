@@ -31,8 +31,9 @@ Then test:
 9. Confirm **Run Tabs** is disabled while **Change Cursor Tabs** is off.
 10. In Cursor, open at least two tabs, turn on **Change Cursor Tabs**, set **Cursor Tabs** to `2`, and run **Run Tabs**.
 11. Confirm the app clicks the visible button on each tab and returns to the starting tab.
-12. Raise **Tab Change Delay** and confirm the Activity Log reports the configured delay.
-13. Confirm the selected region avoids nearby log text such as `Running` or `Auto-Run` when using fuzzy OCR.
+12. Switch to **Live** and confirm the Activity Log says Live is using Cursor tab sweep, then logs keyboard-event creation for each tab change.
+13. Raise **Tab Change Delay** and confirm the Activity Log reports the configured delay.
+14. Confirm the selected region avoids nearby log text such as `Running` or `Auto-Run` when using fuzzy OCR.
 
 ## Packaging Notes
 
