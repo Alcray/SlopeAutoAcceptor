@@ -107,6 +107,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func runCursorTabs() {
+        guard settings.isCursorTabSwitchingEnabled else {
+            appendEvent("Cursor tab sweep is off. Turn on Change Cursor Tabs before running a sweep.")
+            refreshUI()
+            return
+        }
+
         appendEvent("Cursor tab sweep requested for \(settings.cursorTabCount) tab\(settings.cursorTabCount == 1 ? "" : "s").")
         automationEngine.triggerCursorTabSweep()
     }
@@ -156,7 +162,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.targetLabel = cleanedTarget
         settings.pollingInterval = max(0.75, inputs.pollingInterval)
         settings.confidenceThreshold = min(max(inputs.confidenceThreshold, 0), 1)
+        settings.isCursorTabSwitchingEnabled = inputs.isCursorTabSwitchingEnabled
         settings.cursorTabCount = min(max(inputs.cursorTabCount, 1), 40)
+        settings.cursorTabChangeInterval = min(max(inputs.cursorTabChangeInterval, 0.05), 5.0)
 
         persistSettings()
         automationEngine.apply(settings: settings)
@@ -223,7 +231,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(actionItem("Pick Region...", #selector(pickRegion)))
         menu.addItem(actionItem("Show Region", #selector(showRegion)))
         menu.addItem(actionItem("Run Once", #selector(runOnce)))
-        menu.addItem(actionItem("Run Cursor Tabs", #selector(runCursorTabs)))
+        if settings.isCursorTabSwitchingEnabled {
+            menu.addItem(actionItem("Run Cursor Tabs", #selector(runCursorTabs)))
+        } else {
+            menu.addItem(disabledItem("Run Cursor Tabs (Off)"))
+        }
         menu.addItem(actionItem(settings.mode == .live ? "Pause" : "Go Live", #selector(toggleLiveMode)))
 
         menu.addItem(NSMenuItem.separator())
@@ -268,7 +280,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             targetLabel: settings.targetLabel,
             pollingInterval: settings.pollingInterval,
             confidenceThreshold: settings.confidenceThreshold,
-            cursorTabCount: settings.cursorTabCount
+            isCursorTabSwitchingEnabled: settings.isCursorTabSwitchingEnabled,
+            cursorTabCount: settings.cursorTabCount,
+            cursorTabChangeInterval: settings.cursorTabChangeInterval
         )
         controlWindow?.update(with: state)
     }
@@ -366,7 +380,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startupStatusText() -> String {
         let accessibility = MousePermission.hasAccess ? "granted" : "missing"
         let screenRecording = ScreenCapturePermission.hasAccess ? "granted" : "missing"
-        return "Ready. Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Cursor tabs: \(settings.cursorTabCount). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
+        let tabSwitching = settings.isCursorTabSwitchingEnabled ? "on" : "off"
+        return "Ready. Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Cursor tab switching: \(tabSwitching). Cursor tabs: \(settings.cursorTabCount). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
     }
 
     private func terminateDuplicateCopies() {

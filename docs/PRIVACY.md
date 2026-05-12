@@ -18,7 +18,9 @@ Vision Clicker stores settings in macOS `UserDefaults`, including:
 - target labels
 - scan interval
 - confidence threshold
+- whether Cursor tab switching is enabled
 - Cursor tab count
+- Cursor tab change delay
 
 The Activity Log is stored locally in `~/Library/Application Support/VisionClicker/activity.log`.
 

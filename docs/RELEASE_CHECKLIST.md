@@ -28,9 +28,11 @@ Then test:
 6. Run **Show Region**.
 7. Run **Run Once**.
 8. Confirm the app clicks the button and restores the cursor.
-9. In Cursor, open at least two tabs, set **Cursor Tabs** to `2`, and run **Run Tabs**.
-10. Confirm the app clicks the visible button on each tab and returns to the starting tab.
-11. Confirm the selected region avoids nearby log text such as `Running` or `Auto-Run` when using fuzzy OCR.
+9. Confirm **Run Tabs** is disabled while **Change Cursor Tabs** is off.
+10. In Cursor, open at least two tabs, turn on **Change Cursor Tabs**, set **Cursor Tabs** to `2`, and run **Run Tabs**.
+11. Confirm the app clicks the visible button on each tab and returns to the starting tab.
+12. Raise **Tab Change Delay** and confirm the Activity Log reports the configured delay.
+13. Confirm the selected region avoids nearby log text such as `Running` or `Auto-Run` when using fuzzy OCR.
 
 ## Packaging Notes
 

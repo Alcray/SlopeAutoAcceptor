@@ -11,14 +11,18 @@ final class ControlWindowController: NSWindowController {
         var targetLabel: String
         var pollingInterval: TimeInterval
         var confidenceThreshold: Double
+        var isCursorTabSwitchingEnabled: Bool
         var cursorTabCount: Int
+        var cursorTabChangeInterval: TimeInterval
     }
 
     struct Inputs {
         var targetLabel: String
         var pollingInterval: TimeInterval
         var confidenceThreshold: Double
+        var isCursorTabSwitchingEnabled: Bool
         var cursorTabCount: Int
+        var cursorTabChangeInterval: TimeInterval
     }
 
     var onModeSelected: ((AutomationMode) -> Void)?
@@ -46,7 +50,9 @@ final class ControlWindowController: NSWindowController {
     private let targetField = NSTextField(string: "")
     private let intervalField = NSTextField(string: "2.0")
     private let confidenceField = NSTextField(string: "0.58")
+    private let cursorTabSwitchingCheckbox = NSButton(checkboxWithTitle: "Enabled", target: nil, action: nil)
     private let cursorTabCountField = NSTextField(string: "1")
+    private let cursorTabChangeIntervalField = NSTextField(string: "0.35")
 
     private let accessibilityButton = NSButton(title: "Accessibility", target: nil, action: nil)
     private let screenButton = NSButton(title: "Screen Recording", target: nil, action: nil)
@@ -81,6 +87,7 @@ final class ControlWindowController: NSWindowController {
         intervalField.placeholderString = "2.0"
         confidenceField.placeholderString = "0.20"
         cursorTabCountField.placeholderString = "3"
+        cursorTabChangeIntervalField.placeholderString = "0.35"
 
         accessibilityButton.bezelStyle = .rounded
         screenButton.bezelStyle = .rounded
@@ -94,7 +101,9 @@ final class ControlWindowController: NSWindowController {
             [Self.makeLabel("Target Labels"), targetField],
             [Self.makeLabel("Scan Interval (s)"), intervalField],
             [Self.makeLabel("Min Confidence"), confidenceField],
-            [Self.makeLabel("Cursor Tabs"), cursorTabCountField]
+            [Self.makeLabel("Change Cursor Tabs"), cursorTabSwitchingCheckbox],
+            [Self.makeLabel("Cursor Tabs"), cursorTabCountField],
+            [Self.makeLabel("Tab Change Delay (s)"), cursorTabChangeIntervalField]
         ])
         grid.rowSpacing = 8
         grid.columnSpacing = 10
@@ -120,7 +129,7 @@ final class ControlWindowController: NSWindowController {
         content.addArrangedSubview(actionRow)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 390),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 430),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -143,8 +152,12 @@ final class ControlWindowController: NSWindowController {
         intervalField.action = #selector(inputsChanged)
         confidenceField.target = self
         confidenceField.action = #selector(inputsChanged)
+        cursorTabSwitchingCheckbox.target = self
+        cursorTabSwitchingCheckbox.action = #selector(inputsChanged)
         cursorTabCountField.target = self
         cursorTabCountField.action = #selector(inputsChanged)
+        cursorTabChangeIntervalField.target = self
+        cursorTabChangeIntervalField.action = #selector(inputsChanged)
         accessibilityButton.target = self
         accessibilityButton.action = #selector(requestAccessibility)
         screenButton.target = self
@@ -187,13 +200,20 @@ final class ControlWindowController: NSWindowController {
         if confidenceField.currentEditor() == nil {
             confidenceField.stringValue = String(format: "%.2f", state.confidenceThreshold)
         }
+        cursorTabSwitchingCheckbox.state = state.isCursorTabSwitchingEnabled ? .on : .off
         if cursorTabCountField.currentEditor() == nil {
             cursorTabCountField.stringValue = "\(state.cursorTabCount)"
+        }
+        if cursorTabChangeIntervalField.currentEditor() == nil {
+            cursorTabChangeIntervalField.stringValue = String(format: "%.2f", state.cursorTabChangeInterval)
         }
 
         showRegionButton.isEnabled = state.regionText != "Not selected"
         runOnceButton.isEnabled = !state.running
-        runCursorTabsButton.isEnabled = !state.running
+        runCursorTabsButton.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
+        cursorTabSwitchingCheckbox.isEnabled = !state.running
+        cursorTabCountField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
+        cursorTabChangeIntervalField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
         modeControl.isEnabled = !state.running
     }
 
@@ -208,14 +228,18 @@ final class ControlWindowController: NSWindowController {
 
         let interval = max(0.75, Double(intervalField.stringValue) ?? 2.0)
         let confidence = min(max(Double(confidenceField.stringValue) ?? 0.58, 0), 1)
+        let isCursorTabSwitchingEnabled = cursorTabSwitchingCheckbox.state == .on
         let cursorTabCount = min(max(Int(cursorTabCountField.stringValue) ?? 1, 1), 40)
+        let cursorTabChangeInterval = min(max(Double(cursorTabChangeIntervalField.stringValue) ?? 0.35, 0.05), 5.0)
 
         onInputsChanged?(
             Inputs(
                 targetLabel: targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
                 pollingInterval: interval,
                 confidenceThreshold: confidence,
-                cursorTabCount: cursorTabCount
+                isCursorTabSwitchingEnabled: isCursorTabSwitchingEnabled,
+                cursorTabCount: cursorTabCount,
+                cursorTabChangeInterval: cursorTabChangeInterval
             )
         )
     }

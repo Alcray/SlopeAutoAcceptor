@@ -48,7 +48,7 @@ Raise it if the app clicks too eagerly. Lower it only if the OCR result is visib
 ## Running
 
 - **Run Once** performs one scan and click attempt.
-- **Run Tabs** is Cursor-specific. It scans and clicks the current tab, presses `cmd + shift + ]` for each additional tab, scans and clicks each one, then presses `cmd + shift + [` the same number of times to return to the starting tab.
+- **Run Tabs** is Cursor-specific and stays disabled until **Change Cursor Tabs** is enabled. It scans and clicks the current tab, presses `cmd + shift + ]` for each additional tab, scans and clicks each one, then presses `cmd + shift + [` the same number of times to return to the starting tab.
 - **Live** scans repeatedly at the configured interval.
 - **Paused** stops scanning.
 
@@ -56,7 +56,11 @@ Always test with **Run Once** before switching to **Live**.
 
 ## Cursor Tab Sweep
 
+Turn on **Change Cursor Tabs** first. It is off by default so the app cannot unexpectedly move through Cursor tabs.
+
 Set **Cursor Tabs** to the number of Cursor tabs you want to process. For example, `3` scans the current tab, moves right twice, scans each tab, then moves left twice to return.
+
+Set **Tab Change Delay** to control how long the app waits after each Cursor tab shortcut before scanning. The default is `0.35` seconds; raise it if Cursor needs longer to render the next tab.
 
 The sweep activates Cursor when it can find the running app. Accessibility permission is required for the tab keyboard shortcuts and the click.
 

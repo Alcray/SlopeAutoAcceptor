@@ -33,7 +33,9 @@ struct VisionAutomationSettings: Codable {
     var targetLabel: String
     var pollingInterval: TimeInterval
     var confidenceThreshold: Double
+    var isCursorTabSwitchingEnabled: Bool
     var cursorTabCount: Int
+    var cursorTabChangeInterval: TimeInterval
     var captureRegionQuartz: CGRect?
 
     init(
@@ -41,14 +43,18 @@ struct VisionAutomationSettings: Codable {
         targetLabel: String = "Run",
         pollingInterval: TimeInterval = 2.0,
         confidenceThreshold: Double = 0.20,
+        isCursorTabSwitchingEnabled: Bool = false,
         cursorTabCount: Int = 1,
+        cursorTabChangeInterval: TimeInterval = 0.35,
         captureRegionQuartz: CGRect? = nil
     ) {
         self.mode = mode
         self.targetLabel = targetLabel
         self.pollingInterval = pollingInterval
         self.confidenceThreshold = confidenceThreshold
+        self.isCursorTabSwitchingEnabled = isCursorTabSwitchingEnabled
         self.cursorTabCount = cursorTabCount
+        self.cursorTabChangeInterval = cursorTabChangeInterval
         self.captureRegionQuartz = captureRegionQuartz
     }
 
@@ -57,7 +63,9 @@ struct VisionAutomationSettings: Codable {
         case targetLabel
         case pollingInterval
         case confidenceThreshold
+        case isCursorTabSwitchingEnabled
         case cursorTabCount
+        case cursorTabChangeInterval
         case captureRegionQuartz
     }
 
@@ -69,7 +77,9 @@ struct VisionAutomationSettings: Codable {
         targetLabel = try container.decodeIfPresent(String.self, forKey: .targetLabel) ?? defaultSettings.targetLabel
         pollingInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .pollingInterval) ?? defaultSettings.pollingInterval
         confidenceThreshold = try container.decodeIfPresent(Double.self, forKey: .confidenceThreshold) ?? defaultSettings.confidenceThreshold
+        isCursorTabSwitchingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isCursorTabSwitchingEnabled) ?? defaultSettings.isCursorTabSwitchingEnabled
         cursorTabCount = try container.decodeIfPresent(Int.self, forKey: .cursorTabCount) ?? defaultSettings.cursorTabCount
+        cursorTabChangeInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .cursorTabChangeInterval) ?? defaultSettings.cursorTabChangeInterval
         captureRegionQuartz = try container.decodeIfPresent(CGRect.self, forKey: .captureRegionQuartz)
     }
 
@@ -79,7 +89,9 @@ struct VisionAutomationSettings: Codable {
         try container.encode(targetLabel, forKey: .targetLabel)
         try container.encode(pollingInterval, forKey: .pollingInterval)
         try container.encode(confidenceThreshold, forKey: .confidenceThreshold)
+        try container.encode(isCursorTabSwitchingEnabled, forKey: .isCursorTabSwitchingEnabled)
         try container.encode(cursorTabCount, forKey: .cursorTabCount)
+        try container.encode(cursorTabChangeInterval, forKey: .cursorTabChangeInterval)
         try container.encodeIfPresent(captureRegionQuartz, forKey: .captureRegionQuartz)
     }
 }
@@ -136,6 +148,7 @@ final class VisionSettingsStore {
             settings.captureRegionQuartz = legacyRegion
         }
         settings.cursorTabCount = min(max(settings.cursorTabCount, 1), 40)
+        settings.cursorTabChangeInterval = min(max(settings.cursorTabChangeInterval, 0.05), 5.0)
 
         return settings
     }
@@ -947,8 +960,14 @@ final class VisionAutomationEngine {
     }
 
     private func runCursorTabSweep(settings: VisionAutomationSettings) async throws {
+        guard settings.isCursorTabSwitchingEnabled else {
+            emit("Cursor tab sweep is off. Turn on Change Cursor Tabs before running a sweep.")
+            return
+        }
+
         let tabCount = min(max(settings.cursorTabCount, 1), 40)
         let rightMoves = max(tabCount - 1, 0)
+        let tabChangeInterval = min(max(settings.cursorTabChangeInterval, 0.05), 5.0)
 
         let activatedApp = await MainActor.run {
             CursorApplicationActivator.activateIfRunning()
@@ -959,7 +978,7 @@ final class VisionAutomationEngine {
             emit("Cursor app is not running or could not be found. Keyboard shortcuts will go to the frontmost app.")
         }
 
-        emit("Cursor tab sweep started: \(tabCount) tab\(tabCount == 1 ? "" : "s"), \(rightMoves) right move\(rightMoves == 1 ? "" : "s").")
+        emit("Cursor tab sweep started: \(tabCount) tab\(tabCount == 1 ? "" : "s"), \(rightMoves) right move\(rightMoves == 1 ? "" : "s"), \(format(tabChangeInterval))s tab delay.")
         var clickedTabs = 0
 
         for tabIndex in 0..<tabCount {
@@ -977,7 +996,7 @@ final class VisionAutomationEngine {
 
             try keyboardShortcutService.pressCursorTabShortcut(.next)
             emit("Cursor tab sweep moved right to tab \(tabIndex + 2)/\(tabCount).")
-            try await Task.sleep(nanoseconds: 350_000_000)
+            try await sleep(seconds: tabChangeInterval)
         }
 
         guard rightMoves > 0 else {
@@ -988,7 +1007,7 @@ final class VisionAutomationEngine {
         for moveIndex in 0..<rightMoves {
             try keyboardShortcutService.pressCursorTabShortcut(.previous)
             emit("Cursor tab sweep returning left \(moveIndex + 1)/\(rightMoves).")
-            try await Task.sleep(nanoseconds: 250_000_000)
+            try await sleep(seconds: tabChangeInterval)
         }
 
         emit("Cursor tab sweep finished: clicked \(clickedTabs)/\(tabCount) tabs and returned \(rightMoves) tab\(rightMoves == 1 ? "" : "s").")
@@ -1103,6 +1122,11 @@ final class VisionAutomationEngine {
 
     private func format(_ value: Double) -> String {
         String(format: "%.3f", value)
+    }
+
+    private func sleep(seconds: TimeInterval) async throws {
+        let nanoseconds = UInt64((max(seconds, 0) * 1_000_000_000).rounded())
+        try await Task.sleep(nanoseconds: nanoseconds)
     }
 
     private func format(_ point: CGPoint) -> String {
