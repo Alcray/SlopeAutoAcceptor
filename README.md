@@ -43,6 +43,7 @@ The installer builds the app, copies it to `/Applications/Vision Clicker.app`, a
 - Support multiple labels, for example `Run, Fetch, Retry`.
 - Click the detected label and restore the cursor.
 - Run once manually or keep scanning in Live mode.
+- Sweep across Cursor tabs with `cmd + shift + ]`, click each visible target, then return with `cmd + shift + [`.
 - Work with multi-monitor layouts, including displays above or beside the main display.
 
 ## Privacy
@@ -94,9 +95,10 @@ That installs and launches:
 5. Click **Pick Region** and drag around the UI area that contains the target button.
 6. Use **Show Region** to verify the saved rectangle.
 7. Click **Run Once** to test.
-8. Switch to **Live** when the single run behaves correctly.
+8. For Cursor, set **Cursor Tabs** to the number of open tabs you want to process, then click **Run Tabs**.
+9. Switch to **Live** when the single run behaves correctly.
 
-OCR matching is exact after light normalization. A target label `Run` matches a `Run` button, but not `Running`, `rerun`, or `Auto-Run`.
+OCR matching is intentionally fuzzy after light normalization, so `Run` can match OCR text such as `Running` or `Auto-Run`. Keep the selected region tight around the approval controls to avoid nearby log text.
 
 More detail is in the [User Guide](docs/USER_GUIDE.md).
 

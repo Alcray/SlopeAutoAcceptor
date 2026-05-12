@@ -11,12 +11,14 @@ final class ControlWindowController: NSWindowController {
         var targetLabel: String
         var pollingInterval: TimeInterval
         var confidenceThreshold: Double
+        var cursorTabCount: Int
     }
 
     struct Inputs {
         var targetLabel: String
         var pollingInterval: TimeInterval
         var confidenceThreshold: Double
+        var cursorTabCount: Int
     }
 
     var onModeSelected: ((AutomationMode) -> Void)?
@@ -26,6 +28,7 @@ final class ControlWindowController: NSWindowController {
     var onPickRegion: (() -> Void)?
     var onShowRegion: (() -> Void)?
     var onRunOnce: (() -> Void)?
+    var onRunCursorTabs: (() -> Void)?
     var onShowActivity: (() -> Void)?
 
     private var isProgrammaticUpdate = false
@@ -43,12 +46,14 @@ final class ControlWindowController: NSWindowController {
     private let targetField = NSTextField(string: "")
     private let intervalField = NSTextField(string: "2.0")
     private let confidenceField = NSTextField(string: "0.58")
+    private let cursorTabCountField = NSTextField(string: "1")
 
     private let accessibilityButton = NSButton(title: "Accessibility", target: nil, action: nil)
     private let screenButton = NSButton(title: "Screen Recording", target: nil, action: nil)
     private let pickRegionButton = NSButton(title: "Pick Region", target: nil, action: nil)
     private let showRegionButton = NSButton(title: "Show Region", target: nil, action: nil)
     private let runOnceButton = NSButton(title: "Run Once", target: nil, action: nil)
+    private let runCursorTabsButton = NSButton(title: "Run Tabs", target: nil, action: nil)
     private let activityButton = NSButton(title: "Activity Log", target: nil, action: nil)
 
     init() {
@@ -75,18 +80,21 @@ final class ControlWindowController: NSWindowController {
         targetField.placeholderString = "Run, Fetch"
         intervalField.placeholderString = "2.0"
         confidenceField.placeholderString = "0.20"
+        cursorTabCountField.placeholderString = "3"
 
         accessibilityButton.bezelStyle = .rounded
         screenButton.bezelStyle = .rounded
         pickRegionButton.bezelStyle = .rounded
         showRegionButton.bezelStyle = .rounded
         runOnceButton.bezelStyle = .rounded
+        runCursorTabsButton.bezelStyle = .rounded
         activityButton.bezelStyle = .rounded
 
         let grid = NSGridView(views: [
             [Self.makeLabel("Target Labels"), targetField],
             [Self.makeLabel("Scan Interval (s)"), intervalField],
-            [Self.makeLabel("Min Confidence"), confidenceField]
+            [Self.makeLabel("Min Confidence"), confidenceField],
+            [Self.makeLabel("Cursor Tabs"), cursorTabCountField]
         ])
         grid.rowSpacing = 8
         grid.columnSpacing = 10
@@ -106,13 +114,13 @@ final class ControlWindowController: NSWindowController {
         permissionRow.spacing = 10
         content.addArrangedSubview(permissionRow)
 
-        let actionRow = NSStackView(views: [pickRegionButton, showRegionButton, runOnceButton, activityButton])
+        let actionRow = NSStackView(views: [pickRegionButton, showRegionButton, runOnceButton, runCursorTabsButton, activityButton])
         actionRow.orientation = .horizontal
         actionRow.spacing = 10
         content.addArrangedSubview(actionRow)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 350),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 390),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -135,6 +143,8 @@ final class ControlWindowController: NSWindowController {
         intervalField.action = #selector(inputsChanged)
         confidenceField.target = self
         confidenceField.action = #selector(inputsChanged)
+        cursorTabCountField.target = self
+        cursorTabCountField.action = #selector(inputsChanged)
         accessibilityButton.target = self
         accessibilityButton.action = #selector(requestAccessibility)
         screenButton.target = self
@@ -145,6 +155,8 @@ final class ControlWindowController: NSWindowController {
         showRegionButton.action = #selector(showRegion)
         runOnceButton.target = self
         runOnceButton.action = #selector(runOnce)
+        runCursorTabsButton.target = self
+        runCursorTabsButton.action = #selector(runCursorTabs)
         activityButton.target = self
         activityButton.action = #selector(showActivity)
     }
@@ -175,9 +187,13 @@ final class ControlWindowController: NSWindowController {
         if confidenceField.currentEditor() == nil {
             confidenceField.stringValue = String(format: "%.2f", state.confidenceThreshold)
         }
+        if cursorTabCountField.currentEditor() == nil {
+            cursorTabCountField.stringValue = "\(state.cursorTabCount)"
+        }
 
         showRegionButton.isEnabled = state.regionText != "Not selected"
         runOnceButton.isEnabled = !state.running
+        runCursorTabsButton.isEnabled = !state.running
         modeControl.isEnabled = !state.running
     }
 
@@ -192,12 +208,14 @@ final class ControlWindowController: NSWindowController {
 
         let interval = max(0.75, Double(intervalField.stringValue) ?? 2.0)
         let confidence = min(max(Double(confidenceField.stringValue) ?? 0.58, 0), 1)
+        let cursorTabCount = min(max(Int(cursorTabCountField.stringValue) ?? 1, 1), 40)
 
         onInputsChanged?(
             Inputs(
                 targetLabel: targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
                 pollingInterval: interval,
-                confidenceThreshold: confidence
+                confidenceThreshold: confidence,
+                cursorTabCount: cursorTabCount
             )
         )
     }
@@ -219,7 +237,13 @@ final class ControlWindowController: NSWindowController {
     }
 
     @objc private func runOnce() {
+        commitPendingInputs()
         onRunOnce?()
+    }
+
+    @objc private func runCursorTabs() {
+        commitPendingInputs()
+        onRunCursorTabs?()
     }
 
     @objc private func showActivity() {
@@ -230,6 +254,11 @@ final class ControlWindowController: NSWindowController {
         let mouse = hasAccessibility ? "Accessibility: Granted" : "Accessibility: Missing"
         let screen = hasScreenCapture ? "Screen Recording: Granted" : "Screen Recording: Missing"
         return "\(mouse) | \(screen)"
+    }
+
+    private func commitPendingInputs() {
+        window?.makeFirstResponder(nil)
+        inputsChanged()
     }
 
     private static func makeLabel(_ text: String) -> NSTextField {

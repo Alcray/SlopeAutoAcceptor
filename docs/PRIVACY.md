@@ -18,15 +18,16 @@ Vision Clicker stores settings in macOS `UserDefaults`, including:
 - target labels
 - scan interval
 - confidence threshold
+- Cursor tab count
 
-The Activity Log is in memory for the current app session.
+The Activity Log is stored locally in `~/Library/Application Support/VisionClicker/activity.log`.
 
 ## Permissions
 
 Vision Clicker asks for two macOS permissions:
 
 - **Screen Recording**: required to capture the selected region.
-- **Accessibility**: required to move and click the mouse, then restore the cursor.
+- **Accessibility**: required to move and click the mouse, restore the cursor, and press Cursor tab keyboard shortcuts.
 
 ## Network
 

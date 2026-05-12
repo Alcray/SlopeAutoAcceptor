@@ -28,7 +28,9 @@ Then test:
 6. Run **Show Region**.
 7. Run **Run Once**.
 8. Confirm the app clicks the button and restores the cursor.
-9. Confirm `Run` does not match nearby text such as `Running` or `Auto-Run`.
+9. In Cursor, open at least two tabs, set **Cursor Tabs** to `2`, and run **Run Tabs**.
+10. Confirm the app clicks the visible button on each tab and returns to the starting tab.
+11. Confirm the selected region avoids nearby log text such as `Running` or `Auto-Run` when using fuzzy OCR.
 
 ## Packaging Notes
 

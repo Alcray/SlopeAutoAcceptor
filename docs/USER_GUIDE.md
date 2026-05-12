@@ -23,7 +23,7 @@ Use **Show Region** to flash the saved rectangle on screen.
 
 ## Target Labels
 
-Use the **Target Labels** field for one or more exact labels:
+Use the **Target Labels** field for one or more labels:
 
 ```text
 Run
@@ -37,7 +37,7 @@ Run, Fetch, Retry
 
 Labels are split by commas, semicolons, pipes, or new lines.
 
-OCR matching is exact after light normalization, so `Run` does not match `Running`, `rerun`, or `Auto-Run`.
+OCR matching is fuzzy after light normalization, so `Run` can match OCR text such as `Running`, `rerun`, or `Auto-Run`. Keep the selected region tight around the approval controls and away from logs when possible.
 
 ## Confidence
 
@@ -48,10 +48,17 @@ Raise it if the app clicks too eagerly. Lower it only if the OCR result is visib
 ## Running
 
 - **Run Once** performs one scan and click attempt.
+- **Run Tabs** is Cursor-specific. It scans and clicks the current tab, presses `cmd + shift + ]` for each additional tab, scans and clicks each one, then presses `cmd + shift + [` the same number of times to return to the starting tab.
 - **Live** scans repeatedly at the configured interval.
 - **Paused** stops scanning.
 
 Always test with **Run Once** before switching to **Live**.
+
+## Cursor Tab Sweep
+
+Set **Cursor Tabs** to the number of Cursor tabs you want to process. For example, `3` scans the current tab, moves right twice, scans each tab, then moves left twice to return.
+
+The sweep activates Cursor when it can find the running app. Accessibility permission is required for the tab keyboard shortcuts and the click.
 
 ## Activity Log
 

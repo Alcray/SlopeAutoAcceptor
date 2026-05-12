@@ -33,6 +33,7 @@ struct VisionAutomationSettings: Codable {
     var targetLabel: String
     var pollingInterval: TimeInterval
     var confidenceThreshold: Double
+    var cursorTabCount: Int
     var captureRegionQuartz: CGRect?
 
     init(
@@ -40,12 +41,14 @@ struct VisionAutomationSettings: Codable {
         targetLabel: String = "Run",
         pollingInterval: TimeInterval = 2.0,
         confidenceThreshold: Double = 0.20,
+        cursorTabCount: Int = 1,
         captureRegionQuartz: CGRect? = nil
     ) {
         self.mode = mode
         self.targetLabel = targetLabel
         self.pollingInterval = pollingInterval
         self.confidenceThreshold = confidenceThreshold
+        self.cursorTabCount = cursorTabCount
         self.captureRegionQuartz = captureRegionQuartz
     }
 
@@ -54,6 +57,7 @@ struct VisionAutomationSettings: Codable {
         case targetLabel
         case pollingInterval
         case confidenceThreshold
+        case cursorTabCount
         case captureRegionQuartz
     }
 
@@ -65,6 +69,7 @@ struct VisionAutomationSettings: Codable {
         targetLabel = try container.decodeIfPresent(String.self, forKey: .targetLabel) ?? defaultSettings.targetLabel
         pollingInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .pollingInterval) ?? defaultSettings.pollingInterval
         confidenceThreshold = try container.decodeIfPresent(Double.self, forKey: .confidenceThreshold) ?? defaultSettings.confidenceThreshold
+        cursorTabCount = try container.decodeIfPresent(Int.self, forKey: .cursorTabCount) ?? defaultSettings.cursorTabCount
         captureRegionQuartz = try container.decodeIfPresent(CGRect.self, forKey: .captureRegionQuartz)
     }
 
@@ -74,6 +79,7 @@ struct VisionAutomationSettings: Codable {
         try container.encode(targetLabel, forKey: .targetLabel)
         try container.encode(pollingInterval, forKey: .pollingInterval)
         try container.encode(confidenceThreshold, forKey: .confidenceThreshold)
+        try container.encode(cursorTabCount, forKey: .cursorTabCount)
         try container.encodeIfPresent(captureRegionQuartz, forKey: .captureRegionQuartz)
     }
 }
@@ -129,6 +135,7 @@ final class VisionSettingsStore {
         if settings.captureRegionQuartz == nil, let legacyRegion = decode(from: legacyDefaults)?.captureRegionQuartz {
             settings.captureRegionQuartz = legacyRegion
         }
+        settings.cursorTabCount = min(max(settings.cursorTabCount, 1), 40)
 
         return settings
     }
@@ -726,6 +733,99 @@ final class MouseClickService {
     }
 }
 
+enum KeyboardShortcutError: LocalizedError {
+    case noAccessibility
+    case eventSourceMissing
+    case eventCreationFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .noAccessibility:
+            return "Accessibility permission is required to press keyboard shortcuts."
+        case .eventSourceMissing:
+            return "Could not create keyboard event source."
+        case .eventCreationFailed:
+            return "Could not create keyboard shortcut events."
+        }
+    }
+}
+
+enum CursorTabDirection {
+    case next
+    case previous
+
+    var keyCode: CGKeyCode {
+        switch self {
+        case .next:
+            return 30 // ]
+        case .previous:
+            return 33 // [
+        }
+    }
+}
+
+final class KeyboardShortcutService {
+    func pressCursorTabShortcut(_ direction: CursorTabDirection) throws {
+        guard MousePermission.hasAccess else {
+            throw KeyboardShortcutError.noAccessibility
+        }
+
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let source else {
+            throw KeyboardShortcutError.eventSourceMissing
+        }
+
+        guard
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: direction.keyCode, keyDown: true),
+            let keyUp = CGEvent(keyboardEventSource: source, virtualKey: direction.keyCode, keyDown: false)
+        else {
+            throw KeyboardShortcutError.eventCreationFailed
+        }
+
+        let flags = CGEventFlags(
+            rawValue: CGEventFlags.maskCommand.rawValue | CGEventFlags.maskShift.rawValue
+        )
+        keyDown.flags = flags
+        keyUp.flags = flags
+
+        keyDown.post(tap: .cghidEventTap)
+        usleep(45_000)
+        keyUp.post(tap: .cghidEventTap)
+    }
+}
+
+enum CursorApplicationActivator {
+    private static let knownBundleIdentifiers = [
+        "com.todesktop.230313mzl4w4u92",
+        "com.cursor.Cursor",
+        "com.cursor.CursorEditor"
+    ]
+
+    static func activateIfRunning() -> String? {
+        for bundleIdentifier in knownBundleIdentifiers {
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+                app.activate(options: [.activateIgnoringOtherApps])
+                return app.localizedName ?? "Cursor"
+            }
+        }
+
+        if let app = NSWorkspace.shared.runningApplications.first(where: isCursorApp) {
+            app.activate(options: [.activateIgnoringOtherApps])
+            return app.localizedName ?? "Cursor"
+        }
+
+        return nil
+    }
+
+    private static func isCursorApp(_ app: NSRunningApplication) -> Bool {
+        if app.localizedName?.caseInsensitiveCompare("Cursor") == .orderedSame {
+            return true
+        }
+
+        return app.bundleURL?.lastPathComponent.caseInsensitiveCompare("Cursor.app") == .orderedSame
+    }
+}
+
 final class VisionAutomationEngine {
     var onEvent: ((String) -> Void)?
     var onRunningChanged: ((Bool) -> Void)?
@@ -733,6 +833,7 @@ final class VisionAutomationEngine {
     private let captureService = ScreenCaptureService()
     private let modelClient = VisionModelClient()
     private let clickService = MouseClickService()
+    private let keyboardShortcutService = KeyboardShortcutService()
 
     private var settings = VisionAutomationSettings()
     private var timer: Timer?
@@ -745,6 +846,10 @@ final class VisionAutomationEngine {
 
     func triggerManualRun() {
         queueRun(trigger: "manual")
+    }
+
+    func triggerCursorTabSweep() {
+        queueCursorTabSweep()
     }
 
     func stop() {
@@ -808,10 +913,92 @@ final class VisionAutomationEngine {
         }
     }
 
+    private func queueCursorTabSweep() {
+        guard !inFlight else {
+            emit("Cursor tab sweep skipped because a scan is already in progress.")
+            return
+        }
+        inFlight = true
+        onRunningChanged?(true)
+
+        let snapshot = settings
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else {
+                return
+            }
+
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.inFlight = false
+                    self?.onRunningChanged?(false)
+                }
+            }
+
+            do {
+                try await self.runCursorTabSweep(settings: snapshot)
+            } catch {
+                self.emit("Cursor tab sweep failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func runCycle(settings: VisionAutomationSettings, trigger: String) async throws {
+        _ = try await scanAndClick(settings: settings, trigger: trigger)
+    }
+
+    private func runCursorTabSweep(settings: VisionAutomationSettings) async throws {
+        let tabCount = min(max(settings.cursorTabCount, 1), 40)
+        let rightMoves = max(tabCount - 1, 0)
+
+        let activatedApp = await MainActor.run {
+            CursorApplicationActivator.activateIfRunning()
+        }
+        if let activatedApp {
+            emit("Activated \(activatedApp) for Cursor tab sweep.")
+        } else {
+            emit("Cursor app is not running or could not be found. Keyboard shortcuts will go to the frontmost app.")
+        }
+
+        emit("Cursor tab sweep started: \(tabCount) tab\(tabCount == 1 ? "" : "s"), \(rightMoves) right move\(rightMoves == 1 ? "" : "s").")
+        var clickedTabs = 0
+
+        for tabIndex in 0..<tabCount {
+            let didClick = try await scanAndClick(
+                settings: settings,
+                trigger: "cursor-tab \(tabIndex + 1)/\(tabCount)"
+            )
+            if didClick {
+                clickedTabs += 1
+            }
+
+            guard tabIndex < tabCount - 1 else {
+                continue
+            }
+
+            try keyboardShortcutService.pressCursorTabShortcut(.next)
+            emit("Cursor tab sweep moved right to tab \(tabIndex + 2)/\(tabCount).")
+            try await Task.sleep(nanoseconds: 350_000_000)
+        }
+
+        guard rightMoves > 0 else {
+            emit("Cursor tab sweep finished: clicked \(clickedTabs)/\(tabCount) tab.")
+            return
+        }
+
+        for moveIndex in 0..<rightMoves {
+            try keyboardShortcutService.pressCursorTabShortcut(.previous)
+            emit("Cursor tab sweep returning left \(moveIndex + 1)/\(rightMoves).")
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+
+        emit("Cursor tab sweep finished: clicked \(clickedTabs)/\(tabCount) tabs and returned \(rightMoves) tab\(rightMoves == 1 ? "" : "s").")
+    }
+
+    @discardableResult
+    private func scanAndClick(settings: VisionAutomationSettings, trigger: String) async throws -> Bool {
         guard let storedRegion = settings.captureRegionQuartz else {
             emit("No capture region selected yet.")
-            return
+            return false
         }
 
         let region = DisplayCoordinateSpace.normalizedQuartz(rect: storedRegion)
@@ -829,12 +1016,12 @@ final class VisionAutomationEngine {
 
         guard decision.isFound else {
             emit("Target \"\(settings.targetLabel)\" not found. \(decision.note)")
-            return
+            return false
         }
 
         guard decision.confidence >= settings.confidenceThreshold else {
             emit("Target confidence too low (\(String(format: "%.2f", decision.confidence))). \(decision.note)")
-            return
+            return false
         }
 
         let resolved = resolveCoordinates(
@@ -859,6 +1046,7 @@ final class VisionAutomationEngine {
         let appKitPoint = DisplayCoordinateSpace.quartzToAppKit(point: clickPoint)
         emit("Clicked \"\(settings.targetLabel)\" local \(format(localPoint)) -> screen \(format(appKitPoint)) app, \(format(clickPoint)) quartz.")
         emit("Mouse trace: \(format(trace)).")
+        return true
     }
 
     private func emit(_ message: String) {

@@ -106,6 +106,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         automationEngine.triggerManualRun()
     }
 
+    @objc private func runCursorTabs() {
+        appendEvent("Cursor tab sweep requested for \(settings.cursorTabCount) tab\(settings.cursorTabCount == 1 ? "" : "s").")
+        automationEngine.triggerCursorTabSweep()
+    }
+
     @objc private func requestAccessibilityPermission() {
         MousePermission.request()
         appendEvent("Requested Accessibility permission. If macOS changed the permission, restart Vision Clicker.")
@@ -151,6 +156,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.targetLabel = cleanedTarget
         settings.pollingInterval = max(0.75, inputs.pollingInterval)
         settings.confidenceThreshold = min(max(inputs.confidenceThreshold, 0), 1)
+        settings.cursorTabCount = min(max(inputs.cursorTabCount, 1), 40)
 
         persistSettings()
         automationEngine.apply(settings: settings)
@@ -217,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(actionItem("Pick Region...", #selector(pickRegion)))
         menu.addItem(actionItem("Show Region", #selector(showRegion)))
         menu.addItem(actionItem("Run Once", #selector(runOnce)))
+        menu.addItem(actionItem("Run Cursor Tabs", #selector(runCursorTabs)))
         menu.addItem(actionItem(settings.mode == .live ? "Pause" : "Go Live", #selector(toggleLiveMode)))
 
         menu.addItem(NSMenuItem.separator())
@@ -260,7 +267,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hasScreenCapture: ScreenCapturePermission.hasAccess,
             targetLabel: settings.targetLabel,
             pollingInterval: settings.pollingInterval,
-            confidenceThreshold: settings.confidenceThreshold
+            confidenceThreshold: settings.confidenceThreshold,
+            cursorTabCount: settings.cursorTabCount
         )
         controlWindow?.update(with: state)
     }
@@ -288,6 +296,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.onRunOnce = { [weak self] in
             self?.runOnce()
+        }
+        controller.onRunCursorTabs = { [weak self] in
+            self?.runCursorTabs()
         }
         controller.onShowActivity = { [weak self] in
             self?.showActivityLog()
@@ -355,7 +366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startupStatusText() -> String {
         let accessibility = MousePermission.hasAccess ? "granted" : "missing"
         let screenRecording = ScreenCapturePermission.hasAccess ? "granted" : "missing"
-        return "Ready. Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
+        return "Ready. Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Cursor tabs: \(settings.cursorTabCount). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
     }
 
     private func terminateDuplicateCopies() {
