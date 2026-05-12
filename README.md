@@ -1,65 +1,74 @@
-# Agent AutoAccept
+# Vision Clicker
 
-Agent AutoAccept is a local-only macOS menu bar app for people running coding agents in parallel. It watches allowlisted apps for known GUI approval prompts and can press the real approval button with macOS Accessibility APIs.
+Vision Clicker is a local macOS menu bar app that watches a user-selected screen region, finds a visible text button with Apple Vision OCR, clicks it, and then restores the cursor to its original position.
 
-V1 is intentionally narrow:
+It is designed for small approval controls such as `Run`, `Fetch`, or `Retry` in coding-agent UIs.
 
-- Starts in **Monitor** mode and only logs detections.
-- Targets Codex-style GUI prompts in Codex and Cursor.
-- Uses Accessibility button presses, not global Enter keystrokes.
-- Does not use OCR, Screen Recording, terminal automation, telemetry, or network access.
+## Features
+
+- Draw a capture rectangle, similar to `cmd + shift + 4`.
+- Highlight the saved region before running.
+- Detect exact target labels with on-device Apple OCR.
+- Support multiple labels, for example `Run, Fetch, Retry`.
+- Click the detected label and restore the cursor.
+- Run once manually or keep scanning in Live mode.
+- Work with multi-monitor layouts, including displays above or beside the main display.
+
+## Privacy
+
+Vision Clicker uses Apple Vision OCR on your Mac. It does not require an API key, does not download a model, and does not send captured images to a server.
+
+The app stores settings locally in `UserDefaults`, including the selected region, target labels, scan interval, and confidence threshold.
+
+See [Privacy](docs/PRIVACY.md) for details.
+
+## Requirements
+
+- macOS 13 or newer.
+- Accessibility permission, used to perform the synthetic mouse click.
+- Screen Recording permission, used to capture the selected region.
 
 ## Build
 
 ```bash
+swift build --product VisionClicker
 swift run AgentAutoAcceptSelfTest
 sh scripts/build_app.sh
-open "dist/Agent AutoAccept.app"
 ```
 
-The self-test target is a dependency-free Swift executable so the test suite works on Command Line Tools installs that do not expose `XCTest`.
-It covers label normalization, Codex/Cursor prompt matching, flat sampled Accessibility traversal, false-positive rejection, Monitor/Live/Paused controller behavior, Cursor's targeted click fallback, dedupe cooldowns, settings persistence, and JSONL audit logging.
+The built app is written to:
 
-For a normal local install:
+```text
+dist/Vision Clicker.app
+```
+
+For a local install:
 
 ```bash
 sh scripts/install_app.sh
 ```
 
-That installs `/Applications/Agent AutoAccept.app`. Grant Accessibility to that app path, not SwiftPM's hidden `.build` directory and not an older copy in `~/Applications`.
-
-`scripts/build_app.sh` uses a stable local signing identity when one exists. Create it once with:
-
-```bash
-sh scripts/create_local_signing_identity.sh
-```
-
-This creates a local-only code-signing keychain and signs future local builds as `Agent AutoAccept Local Signing`, so macOS Accessibility trust survives rebuilt installs. You can also sign with an Apple identity:
-
-```bash
-AGENT_AUTOACCEPT_SIGN_IDENTITY="Developer ID Application: Your Name" sh scripts/build_app.sh
-```
-
-If an older ad-hoc build is already listed in System Settings, remove `Agent AutoAccept` from Privacy & Security -> Accessibility, add `/Applications/Agent AutoAccept.app` again, and restart the app.
-
-## Use
-
-The menu bar item shows one of three states:
-
-- `AA Monitor`: detects and logs prompts without clicking.
-- `AA Live`: presses matched `Run` buttons in allowlisted app windows.
-- `AA Off`: scanning is paused.
-
-Use **Allowed Apps** to enable/disable the built-in Codex/Cursor profiles or add another app by bundle identifier. Added apps use the same Codex-style prompt rule.
-
-Audit logs are written as JSONL to:
+That installs and launches:
 
 ```text
-~/Library/Application Support/AgentAutoAccept/audit.jsonl
+/Applications/Vision Clicker.app
 ```
 
-## Safety Model
+## Usage
 
-Agent AutoAccept only scans apps on the allowlist. A prompt candidate must contain a real Accessibility button labeled like `Run`, plus Codex-style context such as `Skip`, `Auto-Run in Sandbox`, or shell command text. The scanner samples visible app windows to collect Accessibility anchors, expands nearby controls, then presses the matched button element; it does not send a blind click to a fixed screen coordinate. In live mode it calls the matched button directly; Cursor uses a targeted click on the matched button frame first because Electron can report successful Accessibility presses without executing the button. Monitor mode dedupes repeated detections for five minutes; Live mode retries the same visible prompt after a short cooldown so one ignored Electron click does not block execution for minutes.
+1. Launch Vision Clicker.
+2. Grant Accessibility and Screen Recording permissions.
+3. Enter target labels, such as `Run` or `Run, Fetch`.
+4. Set a minimum confidence. `0.20` is a practical starting point for small buttons.
+5. Click **Pick Region** and drag around the UI area that contains the target button.
+6. Use **Show Region** to verify the saved rectangle.
+7. Click **Run Once** to test.
+8. Switch to **Live** when the single run behaves correctly.
 
-There is no fallback path that sends keyboard events to the system.
+OCR matching is exact after light normalization. A target label `Run` matches a `Run` button, but not `Running`, `rerun`, or `Auto-Run`.
+
+More detail is in the [User Guide](docs/USER_GUIDE.md).
+
+## Release
+
+Use [Release Checklist](docs/RELEASE_CHECKLIST.md) before publishing a build.

@@ -1,86 +1,152 @@
-import AgentAutoAcceptCore
 import AppKit
 
 final class ControlWindowController: NSWindowController {
-    var onModeSelected: ((AutoAcceptMode) -> Void)?
+    struct State {
+        var mode: AutomationMode
+        var statusText: String
+        var regionText: String
+        var running: Bool
+        var hasAccessibility: Bool
+        var hasScreenCapture: Bool
+        var targetLabel: String
+        var pollingInterval: TimeInterval
+        var confidenceThreshold: Double
+    }
+
+    struct Inputs {
+        var targetLabel: String
+        var pollingInterval: TimeInterval
+        var confidenceThreshold: Double
+    }
+
+    var onModeSelected: ((AutomationMode) -> Void)?
+    var onInputsChanged: ((Inputs) -> Void)?
     var onRequestAccessibility: (() -> Void)?
-    var onShowAudit: (() -> Void)?
-    var onShowRecent: (() -> Void)?
+    var onRequestScreenCapture: (() -> Void)?
+    var onPickRegion: (() -> Void)?
+    var onShowRegion: (() -> Void)?
+    var onRunOnce: (() -> Void)?
+    var onShowActivity: (() -> Void)?
+
+    private var isProgrammaticUpdate = false
 
     private let modeControl = NSSegmentedControl(
-        labels: ["Monitor", "Live", "Paused"],
+        labels: ["Live", "Paused"],
         trackingMode: .selectOne,
         target: nil,
         action: nil
     )
     private let statusLabel = NSTextField(labelWithString: "")
+    private let regionLabel = NSTextField(labelWithString: "")
     private let permissionLabel = NSTextField(labelWithString: "")
-    private let appsLabel = NSTextField(labelWithString: "")
-    private let permissionButton = NSButton(title: "Grant Accessibility Permission", target: nil, action: nil)
-    private let recentButton = NSButton(title: "Recent Detections", target: nil, action: nil)
-    private let auditButton = NSButton(title: "Audit Log", target: nil, action: nil)
+
+    private let targetField = NSTextField(string: "")
+    private let intervalField = NSTextField(string: "2.0")
+    private let confidenceField = NSTextField(string: "0.58")
+
+    private let accessibilityButton = NSButton(title: "Accessibility", target: nil, action: nil)
+    private let screenButton = NSButton(title: "Screen Recording", target: nil, action: nil)
+    private let pickRegionButton = NSButton(title: "Pick Region", target: nil, action: nil)
+    private let showRegionButton = NSButton(title: "Show Region", target: nil, action: nil)
+    private let runOnceButton = NSButton(title: "Run Once", target: nil, action: nil)
+    private let activityButton = NSButton(title: "Activity Log", target: nil, action: nil)
 
     init() {
         let content = NSStackView()
         content.orientation = .vertical
         content.alignment = .leading
-        content.spacing = 16
+        content.spacing = 14
         content.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 24)
         content.translatesAutoresizingMaskIntoConstraints = false
 
-        let title = NSTextField(labelWithString: "Agent AutoAccept")
+        let title = NSTextField(labelWithString: "Vision Clicker")
         title.font = .boldSystemFont(ofSize: 24)
 
         statusLabel.font = .systemFont(ofSize: 15, weight: .medium)
+        regionLabel.font = .systemFont(ofSize: 13)
+        regionLabel.textColor = .secondaryLabelColor
         permissionLabel.font = .systemFont(ofSize: 13)
-        appsLabel.font = .systemFont(ofSize: 13)
-        appsLabel.textColor = .secondaryLabelColor
+        permissionLabel.textColor = .secondaryLabelColor
 
         modeControl.segmentStyle = .rounded
-        modeControl.setWidth(110, forSegment: 0)
-        modeControl.setWidth(90, forSegment: 1)
-        modeControl.setWidth(100, forSegment: 2)
+        modeControl.setWidth(120, forSegment: 0)
+        modeControl.setWidth(120, forSegment: 1)
 
-        permissionButton.bezelStyle = .rounded
-        recentButton.bezelStyle = .rounded
-        auditButton.bezelStyle = .rounded
+        targetField.placeholderString = "Run, Fetch"
+        intervalField.placeholderString = "2.0"
+        confidenceField.placeholderString = "0.20"
 
-        let buttonRow = NSStackView(views: [recentButton, auditButton])
-        buttonRow.orientation = .horizontal
-        buttonRow.spacing = 10
+        accessibilityButton.bezelStyle = .rounded
+        screenButton.bezelStyle = .rounded
+        pickRegionButton.bezelStyle = .rounded
+        showRegionButton.bezelStyle = .rounded
+        runOnceButton.bezelStyle = .rounded
+        activityButton.bezelStyle = .rounded
+
+        let grid = NSGridView(views: [
+            [Self.makeLabel("Target Labels"), targetField],
+            [Self.makeLabel("Scan Interval (s)"), intervalField],
+            [Self.makeLabel("Min Confidence"), confidenceField]
+        ])
+        grid.rowSpacing = 8
+        grid.columnSpacing = 10
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 1).xPlacement = .fill
 
         content.addArrangedSubview(title)
         content.addArrangedSubview(statusLabel)
         content.addArrangedSubview(modeControl)
+        content.addArrangedSubview(grid)
+        content.addArrangedSubview(regionLabel)
         content.addArrangedSubview(permissionLabel)
-        content.addArrangedSubview(permissionButton)
-        content.addArrangedSubview(appsLabel)
-        content.addArrangedSubview(buttonRow)
+
+        let permissionRow = NSStackView(views: [accessibilityButton, screenButton])
+        permissionRow.orientation = .horizontal
+        permissionRow.spacing = 10
+        content.addArrangedSubview(permissionRow)
+
+        let actionRow = NSStackView(views: [pickRegionButton, showRegionButton, runOnceButton, activityButton])
+        actionRow.orientation = .horizontal
+        actionRow.spacing = 10
+        content.addArrangedSubview(actionRow)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 350),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Agent AutoAccept"
+        window.title = "Vision Clicker"
         window.contentView = content
         window.center()
 
         NSLayoutConstraint.activate([
-            content.widthAnchor.constraint(equalToConstant: 412)
+            content.widthAnchor.constraint(equalToConstant: 512)
         ])
 
         super.init(window: window)
 
         modeControl.target = self
         modeControl.action = #selector(modeChanged)
-        permissionButton.target = self
-        permissionButton.action = #selector(requestAccessibility)
-        recentButton.target = self
-        recentButton.action = #selector(showRecent)
-        auditButton.target = self
-        auditButton.action = #selector(showAudit)
+        targetField.target = self
+        targetField.action = #selector(inputsChanged)
+        intervalField.target = self
+        intervalField.action = #selector(inputsChanged)
+        confidenceField.target = self
+        confidenceField.action = #selector(inputsChanged)
+        accessibilityButton.target = self
+        accessibilityButton.action = #selector(requestAccessibility)
+        screenButton.target = self
+        screenButton.action = #selector(requestScreenCapture)
+        pickRegionButton.target = self
+        pickRegionButton.action = #selector(pickRegion)
+        showRegionButton.target = self
+        showRegionButton.action = #selector(showRegion)
+        runOnceButton.target = self
+        runOnceButton.action = #selector(runOnce)
+        activityButton.target = self
+        activityButton.action = #selector(showActivity)
     }
 
     @available(*, unavailable)
@@ -88,48 +154,89 @@ final class ControlWindowController: NSWindowController {
         nil
     }
 
-    func update(mode: AutoAcceptMode, accessibilityTrusted: Bool, profiles: [AppProfile]) {
-        switch mode {
-        case .dryRun:
-            modeControl.selectedSegment = 0
-        case .live:
-            modeControl.selectedSegment = 1
-        case .paused:
-            modeControl.selectedSegment = 2
+    func update(with state: State) {
+        isProgrammaticUpdate = true
+        defer { isProgrammaticUpdate = false }
+
+        modeControl.selectedSegment = state.mode == .live ? 0 : 1
+        statusLabel.stringValue = "Status: \(state.statusText)"
+        regionLabel.stringValue = "Region: \(state.regionText)"
+        permissionLabel.stringValue = permissionText(
+            hasAccessibility: state.hasAccessibility,
+            hasScreenCapture: state.hasScreenCapture
+        )
+
+        if targetField.currentEditor() == nil {
+            targetField.stringValue = state.targetLabel
+        }
+        if intervalField.currentEditor() == nil {
+            intervalField.stringValue = String(format: "%.2f", state.pollingInterval)
+        }
+        if confidenceField.currentEditor() == nil {
+            confidenceField.stringValue = String(format: "%.2f", state.confidenceThreshold)
         }
 
-        statusLabel.stringValue = "Status: \(mode.displayName)"
-        permissionLabel.stringValue = accessibilityTrusted
-            ? "Accessibility: Granted"
-            : "Accessibility: Not granted"
-
-        let enabledProfiles = profiles
-            .filter(\.isEnabled)
-            .map(\.displayName)
-            .joined(separator: ", ")
-        appsLabel.stringValue = "Watching: \(enabledProfiles.isEmpty ? "No apps" : enabledProfiles)"
+        showRegionButton.isEnabled = state.regionText != "Not selected"
+        runOnceButton.isEnabled = !state.running
+        modeControl.isEnabled = !state.running
     }
 
     @objc private func modeChanged() {
-        switch modeControl.selectedSegment {
-        case 0:
-            onModeSelected?(.dryRun)
-        case 1:
-            onModeSelected?(.live)
-        default:
-            onModeSelected?(.paused)
+        onModeSelected?(modeControl.selectedSegment == 0 ? .live : .paused)
+    }
+
+    @objc private func inputsChanged() {
+        guard !isProgrammaticUpdate else {
+            return
         }
+
+        let interval = max(0.75, Double(intervalField.stringValue) ?? 2.0)
+        let confidence = min(max(Double(confidenceField.stringValue) ?? 0.58, 0), 1)
+
+        onInputsChanged?(
+            Inputs(
+                targetLabel: targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
+                pollingInterval: interval,
+                confidenceThreshold: confidence
+            )
+        )
     }
 
     @objc private func requestAccessibility() {
         onRequestAccessibility?()
     }
 
-    @objc private func showRecent() {
-        onShowRecent?()
+    @objc private func requestScreenCapture() {
+        onRequestScreenCapture?()
     }
 
-    @objc private func showAudit() {
-        onShowAudit?()
+    @objc private func pickRegion() {
+        onPickRegion?()
     }
+
+    @objc private func showRegion() {
+        onShowRegion?()
+    }
+
+    @objc private func runOnce() {
+        onRunOnce?()
+    }
+
+    @objc private func showActivity() {
+        onShowActivity?()
+    }
+
+    private func permissionText(hasAccessibility: Bool, hasScreenCapture: Bool) -> String {
+        let mouse = hasAccessibility ? "Accessibility: Granted" : "Accessibility: Missing"
+        let screen = hasScreenCapture ? "Screen Recording: Granted" : "Screen Recording: Missing"
+        return "\(mouse) | \(screen)"
+    }
+
+    private static func makeLabel(_ text: String) -> NSTextField {
+        let field = NSTextField(labelWithString: text)
+        field.font = .systemFont(ofSize: 12, weight: .medium)
+        field.textColor = .secondaryLabelColor
+        return field
+    }
+
 }

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="Agent AutoAccept"
-EXECUTABLE_NAME="AgentAutoAccept"
+APP_NAME="Vision Clicker"
+EXECUTABLE_NAME="VisionClicker"
 CONFIGURATION="${CONFIGURATION:-release}"
 DEFAULT_LOCAL_SIGN_IDENTITY="Agent AutoAccept Local Signing"
 LOCAL_SIGN_IDENTITY="${AGENT_AUTOACCEPT_LOCAL_SIGN_IDENTITY:-$DEFAULT_LOCAL_SIGN_IDENTITY}"

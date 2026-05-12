@@ -5,15 +5,15 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>AgentAutoAccept</string>
+    <string>VisionClicker</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.agentautoaccept.app</string>
+    <string>dev.visionclicker.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Agent AutoAccept</string>
+    <string>Vision Clicker</string>
     <key>CFBundleDisplayName</key>
-    <string>Agent AutoAccept</string>
+    <string>Vision Clicker</string>
     <key>CFBundleIconFile</key>
     <string>AgentAutoAccept</string>
     <key>CFBundleIconName</key>
@@ -27,6 +27,6 @@
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2026 Agent AutoAccept contributors.</string>
+    <string>Copyright © 2026 Vision Clicker contributors.</string>
 </dict>
 </plist>

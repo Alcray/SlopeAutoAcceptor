@@ -1,45 +1,23 @@
-import AgentAutoAcceptCore
 import AppKit
-import ApplicationServices
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let settings = SettingsStore()
-    private let auditLogger: JSONLAuditLogger
-    private let auditSink: BroadcastingAuditSink
-    private let approvalController: AutoApprovalController
-    private let scanner: AppScanner
+    private let settingsStore = VisionSettingsStore()
+    private let activityLogStore = ActivityLogStore()
+    private var settings: VisionAutomationSettings
+    private let automationEngine = VisionAutomationEngine()
+    private let regionSelector = ScreenRegionSelector()
+    private let regionHighlighter = ScreenRegionHighlighter()
 
     private var statusItem: NSStatusItem?
-    private var recentEvents: [AuditEvent] = []
-    private var recentWindow: TextWindowController?
     private var controlWindow: ControlWindowController?
+    private var recentWindow: TextWindowController?
+    private var recentEvents: [String] = []
+    private var isRunInProgress = false
 
     override init() {
-        do {
-            auditLogger = try JSONLAuditLogger()
-        } catch {
-            fatalError("Could not initialize audit log: \(error)")
-        }
-
-        if settings.mode == .live {
-            settings.mode = .dryRun
-        }
-
-        auditSink = BroadcastingAuditSink(logger: auditLogger)
-        approvalController = AutoApprovalController(mode: settings.mode, auditSink: auditSink)
-        scanner = AppScanner(settings: settings, controller: approvalController)
-        recentEvents = Array(auditLogger.recentEvents(limit: 100).reversed())
+        settings = settingsStore.load()
         super.init()
-
-        auditSink.onEvent = { [weak self] event in
-            DispatchQueue.main.async {
-                self?.recentEvents.insert(event, at: 0)
-                if self?.recentEvents.count ?? 0 > 100 {
-                    self?.recentEvents.removeLast()
-                }
-                self?.rebuildMenu()
-            }
-        }
+        wireEngineCallbacks()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -48,41 +26,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
+        migrateCaptureRegionIfNeeded()
+        persistSettings()
+        automationEngine.apply(settings: settings)
         rebuildMenu()
+        updateControlWindow()
         showControlWindow()
 
-        if !AccessibilityPermission.isTrusted {
-            AccessibilityPermission.request()
-        }
-
-        scanner.start()
+        appendEvent(startupStatusText())
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        scanner.stop()
+        automationEngine.stop()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showControlWindow()
         return true
-    }
-
-    @objc private func setDryRunMode() {
-        setMode(.dryRun)
-    }
-
-    @objc private func setLiveMode() {
-        setMode(.live)
-    }
-
-    @objc private func setPausedMode() {
-        setMode(.paused)
-    }
-
-    @objc private func requestAccessibility() {
-        AccessibilityPermission.request()
-        rebuildMenu()
-        updateControlWindow()
     }
 
     @objc private func showControlWindow() {
@@ -93,216 +53,274 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.showWindow(nil)
     }
 
-    @objc private func showRecentDetections() {
-        let events = recentEvents.isEmpty
-            ? Array(auditLogger.recentEvents(limit: 100).reversed())
-            : recentEvents
-        let lines = events.isEmpty
-            ? ["No detections yet."]
-            : events.map(formatEvent)
-
-        showTextWindow(title: "Recent Detections", text: lines.joined(separator: "\n\n"))
-    }
-
-    @objc private func showAuditLog() {
-        let events = auditLogger.recentEvents(limit: 100)
-        let text: String
-
-        if events.isEmpty {
-            let raw = rawAuditTail()
-            text = raw.isEmpty
-                ? "No audit events yet.\n\nAudit path:\n\(auditLogger.fileURL.path)"
-                : "Could not decode audit events. Raw audit tail:\n\n\(raw)\n\nAudit path:\n\(auditLogger.fileURL.path)"
-        } else {
-            text = events.map(formatEvent).joined(separator: "\n\n") + "\n\nAudit path:\n\(auditLogger.fileURL.path)"
-        }
-
-        showTextWindow(title: "Audit Log", text: text)
-    }
-
-    @objc private func revealAuditLog() {
-        NSWorkspace.shared.activateFileViewerSelecting([auditLogger.fileURL])
-    }
-
-    @objc private func addAppProfile() {
+    @objc private func pickRegion() {
         NSApp.activate(ignoringOtherApps: true)
+        regionSelector.beginSelection { [weak self] selectedAppKitRect in
+            guard let self else {
+                return
+            }
 
-        let alert = NSAlert()
-        alert.messageText = "Add Allowed App"
-        alert.informativeText = "Enter the display name and bundle identifier. The Codex approval rule will be used for this app."
-        alert.addButton(withTitle: "Add")
-        alert.addButton(withTitle: "Cancel")
+            guard let selectedAppKitRect else {
+                self.appendEvent("Region selection cancelled.")
+                return
+            }
 
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        let nameField = NSTextField(string: "")
-        nameField.placeholderString = "Display name, e.g. Cursor"
-
-        let bundleField = NSTextField(string: "")
-        bundleField.placeholderString = "Bundle identifier, e.g. com.todesktop.230313mzl4w4u92"
-
-        stack.addArrangedSubview(nameField)
-        stack.addArrangedSubview(bundleField)
-        NSLayoutConstraint.activate([
-            stack.widthAnchor.constraint(equalToConstant: 360)
-        ])
-
-        alert.accessoryView = stack
-
-        guard alert.runModal() == .alertFirstButtonReturn else {
-            return
+            let quartzRect = DisplayCoordinateSpace.appKitToQuartz(rect: selectedAppKitRect)
+            self.settings.captureRegionQuartz = quartzRect
+            self.persistSettings()
+            self.automationEngine.apply(settings: self.settings)
+            self.appendEvent("Region selected: \(self.regionDescription()).")
+            self.refreshUI()
         }
-
-        let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bundleID = bundleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !name.isEmpty, !bundleID.isEmpty else {
-            return
-        }
-
-        settings.addProfile(displayName: name, bundleIdentifier: bundleID)
-        rebuildMenu()
     }
 
-    @objc private func resetProfiles() {
-        settings.resetProfiles()
-        rebuildMenu()
-    }
-
-    @objc private func toggleProfile(_ sender: NSMenuItem) {
-        guard
-            let rawID = sender.representedObject as? String,
-            let id = UUID(uuidString: rawID),
-            let profile = settings.profiles.first(where: { $0.id == id })
-        else {
+    @objc private func showRegion() {
+        guard let quartzRect = settings.captureRegionQuartz else {
+            appendEvent("No region selected yet.")
+            refreshUI()
             return
         }
 
-        settings.setProfileEnabled(id, isEnabled: !profile.isEnabled)
-        rebuildMenu()
+        let appKitRect = DisplayCoordinateSpace.quartzToAppKit(
+            rect: DisplayCoordinateSpace.normalizedQuartz(rect: quartzRect)
+        ).standardized
+        regionHighlighter.show(appKitRect: appKitRect)
+        appendEvent("Showing selected region: \(regionDescription()).")
+        refreshUI()
+    }
+
+    @objc private func toggleLiveMode() {
+        setMode(settings.mode == .live ? .paused : .live)
+    }
+
+    @objc private func setLiveMode() {
+        setMode(.live)
+    }
+
+    @objc private func setPausedMode() {
+        setMode(.paused)
+    }
+
+    @objc private func runOnce() {
+        appendEvent("Run Once requested.")
+        automationEngine.triggerManualRun()
+    }
+
+    @objc private func requestAccessibilityPermission() {
+        MousePermission.request()
+        appendEvent("Requested Accessibility permission. If macOS changed the permission, restart Vision Clicker.")
+        refreshUI()
+    }
+
+    @objc private func requestScreenCapturePermission() {
+        _ = ScreenCapturePermission.request()
+        appendEvent("Requested Screen Recording permission. If macOS changed the permission, restart Vision Clicker.")
+        refreshUI()
+    }
+
+    @objc private func showActivityLog() {
+        let lines = activityLogStore.recentLines(limit: 220)
+        let text = lines.isEmpty ? "No activity yet." : lines.joined(separator: "\n\n")
+        showTextWindow(title: "Vision Clicker Activity", text: text)
     }
 
     @objc private func quit() {
         NSApp.terminate(nil)
     }
 
-    private func setMode(_ mode: AutoAcceptMode) {
-        if mode == .live, settings.mode != .live, !confirmLiveMode() {
-            rebuildMenu()
-            updateControlWindow()
+    private func setMode(_ mode: AutomationMode) {
+        guard mode != settings.mode else {
             return
         }
 
-        if approvalController.mode != mode {
-            approvalController.resetDedupe()
+        if mode == .live && !confirmLiveMode() {
+            refreshUI()
+            return
         }
 
         settings.mode = mode
-        approvalController.mode = mode
+        persistSettings()
+        automationEngine.apply(settings: settings)
+        appendEvent("Mode switched to \(mode.displayName).")
+        refreshUI()
+    }
+
+    private func updateInputs(_ inputs: ControlWindowController.Inputs) {
+        let cleanedTarget = TargetLabelParser.canonicalText(from: inputs.targetLabel)
+
+        settings.targetLabel = cleanedTarget
+        settings.pollingInterval = max(0.75, inputs.pollingInterval)
+        settings.confidenceThreshold = min(max(inputs.confidenceThreshold, 0), 1)
+
+        persistSettings()
+        automationEngine.apply(settings: settings)
+        refreshUI()
+    }
+
+    private func persistSettings() {
+        settingsStore.save(settings)
+    }
+
+    private func migrateCaptureRegionIfNeeded() {
+        guard let storedRegion = settings.captureRegionQuartz else {
+            return
+        }
+
+        guard !DisplayCoordinateSpace.isQuartzRectOnAnyDisplay(storedRegion) else {
+            return
+        }
+
+        settings.captureRegionQuartz = DisplayCoordinateSpace.normalizedQuartz(rect: storedRegion)
+        persistSettings()
+        appendEvent("Updated selected region for current display layout.")
+    }
+
+    private func wireEngineCallbacks() {
+        automationEngine.onEvent = { [weak self] message in
+            DispatchQueue.main.async {
+                self?.appendEvent(message)
+                self?.refreshUI()
+            }
+        }
+
+        automationEngine.onRunningChanged = { [weak self] isRunning in
+            DispatchQueue.main.async {
+                self?.isRunInProgress = isRunning
+                self?.refreshUI()
+            }
+        }
+    }
+
+    private func appendEvent(_ message: String) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "\(timestamp)  \(message)"
+        activityLogStore.append(line)
+        recentEvents.insert(line, at: 0)
+        if recentEvents.count > 180 {
+            recentEvents.removeLast()
+        }
+    }
+
+    private func refreshUI() {
         rebuildMenu()
         updateControlWindow()
     }
 
     private func rebuildMenu() {
-        approvalController.mode = settings.mode
-
-        statusItem?.length = NSStatusItem.squareLength
-        if let button = statusItem?.button {
-            button.image = statusImage(for: settings.mode)
-            button.imagePosition = .imageOnly
-            button.title = ""
-            button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = "Agent AutoAccept is \(settings.mode.displayName)"
-            button.setAccessibilityLabel("Agent AutoAccept \(settings.mode.displayName)")
-        }
-
         let menu = NSMenu()
-        menu.addItem(disabledItem("Agent AutoAccept: \(settings.mode.displayName)"))
-
-        if !AccessibilityPermission.isTrusted {
-            let item = NSMenuItem(
-                title: "Grant Accessibility Permission...",
-                action: #selector(requestAccessibility),
-                keyEquivalent: ""
-            )
-            item.target = self
-            menu.addItem(item)
-        } else {
-            menu.addItem(disabledItem("Accessibility: Granted"))
-        }
-
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(modeItem(.dryRun, selector: #selector(setDryRunMode)))
-        menu.addItem(modeItem(.live, selector: #selector(setLiveMode)))
-        menu.addItem(modeItem(.paused, selector: #selector(setPausedMode)))
-
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(allowedAppsMenu())
+        menu.addItem(disabledItem("Vision Clicker: \(statusSummaryText())"))
+        menu.addItem(disabledItem("Engine: Apple OCR"))
+        menu.addItem(disabledItem("Region: \(regionDescription())"))
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("Show Control Window", #selector(showControlWindow)))
-        menu.addItem(actionItem("Recent Detections...", #selector(showRecentDetections)))
-        menu.addItem(actionItem("View Audit Log...", #selector(showAuditLog)))
-        menu.addItem(actionItem("Reveal Audit Log in Finder", #selector(revealAuditLog)))
+        menu.addItem(actionItem("Pick Region...", #selector(pickRegion)))
+        menu.addItem(actionItem("Show Region", #selector(showRegion)))
+        menu.addItem(actionItem("Run Once", #selector(runOnce)))
+        menu.addItem(actionItem(settings.mode == .live ? "Pause" : "Go Live", #selector(toggleLiveMode)))
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(actionItem("Quit Agent AutoAccept", #selector(quit), keyEquivalent: "q"))
+        menu.addItem(actionItem("Grant Accessibility", #selector(requestAccessibilityPermission)))
+        menu.addItem(actionItem("Grant Screen Recording", #selector(requestScreenCapturePermission)))
+        menu.addItem(actionItem("Activity Log...", #selector(showActivityLog)))
+
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(actionItem("Quit Vision Clicker", #selector(quit), keyEquivalent: "q"))
 
         statusItem?.menu = menu
+        updateStatusItemButton()
     }
 
-    private func allowedAppsMenu() -> NSMenuItem {
-        let item = NSMenuItem(title: "Allowed Apps", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-
-        for profile in settings.profiles {
-            let profileItem = NSMenuItem(
-                title: "\(profile.displayName) (\(profile.bundleIdentifier))",
-                action: #selector(toggleProfile(_:)),
-                keyEquivalent: ""
-            )
-            profileItem.target = self
-            profileItem.state = profile.isEnabled ? .on : .off
-            profileItem.representedObject = profile.id.uuidString
-            submenu.addItem(profileItem)
+    private func updateStatusItemButton() {
+        guard let button = statusItem?.button else {
+            return
         }
 
-        submenu.addItem(NSMenuItem.separator())
-        submenu.addItem(actionItem("Add App by Bundle ID...", #selector(addAppProfile)))
-        submenu.addItem(actionItem("Reset to Codex Default", #selector(resetProfiles)))
-        item.submenu = submenu
-        return item
-    }
-
-    private func statusImage(for mode: AutoAcceptMode) -> NSImage? {
         let symbolName: String
-        let description: String
-
-        switch mode {
-        case .dryRun:
-            symbolName = "eye.circle.fill"
-            description = "Agent AutoAccept monitor"
+        switch settings.mode {
         case .live:
-            symbolName = "checkmark.circle.fill"
-            description = "Agent AutoAccept live"
+            symbolName = isRunInProgress ? "bolt.circle.fill" : "play.circle.fill"
         case .paused:
             symbolName = "pause.circle.fill"
-            description = "Agent AutoAccept paused"
         }
 
-        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description)
-        image?.isTemplate = true
-        return image
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Vision Clicker")
+        button.image?.isTemplate = true
+        button.toolTip = "Vision Clicker: \(statusSummaryText())"
+        button.setAccessibilityLabel("Vision Clicker \(statusSummaryText())")
     }
 
-    private func modeItem(_ mode: AutoAcceptMode, selector: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: mode.displayName, action: selector, keyEquivalent: "")
-        item.target = self
-        item.state = settings.mode == mode ? .on : .off
-        return item
+    private func updateControlWindow() {
+        let state = ControlWindowController.State(
+            mode: settings.mode,
+            statusText: statusSummaryText(),
+            regionText: regionDescription(),
+            running: isRunInProgress,
+            hasAccessibility: MousePermission.hasAccess,
+            hasScreenCapture: ScreenCapturePermission.hasAccess,
+            targetLabel: settings.targetLabel,
+            pollingInterval: settings.pollingInterval,
+            confidenceThreshold: settings.confidenceThreshold
+        )
+        controlWindow?.update(with: state)
+    }
+
+    private func makeControlWindow() -> ControlWindowController {
+        let controller = ControlWindowController()
+
+        controller.onModeSelected = { [weak self] mode in
+            self?.setMode(mode)
+        }
+        controller.onInputsChanged = { [weak self] inputs in
+            self?.updateInputs(inputs)
+        }
+        controller.onRequestAccessibility = { [weak self] in
+            self?.requestAccessibilityPermission()
+        }
+        controller.onRequestScreenCapture = { [weak self] in
+            self?.requestScreenCapturePermission()
+        }
+        controller.onPickRegion = { [weak self] in
+            self?.pickRegion()
+        }
+        controller.onShowRegion = { [weak self] in
+            self?.showRegion()
+        }
+        controller.onRunOnce = { [weak self] in
+            self?.runOnce()
+        }
+        controller.onShowActivity = { [weak self] in
+            self?.showActivityLog()
+        }
+
+        return controller
+    }
+
+    private func showTextWindow(title: String, text: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let controller = TextWindowController(title: title, text: text)
+        recentWindow = controller
+        controller.showWindow(nil)
+    }
+
+    private func statusSummaryText() -> String {
+        switch settings.mode {
+        case .paused:
+            return "Paused"
+        case .live:
+            return isRunInProgress ? "Live (Scanning)" : "Live (Waiting)"
+        }
+    }
+
+    private func regionDescription() -> String {
+        guard let quartzRect = settings.captureRegionQuartz else {
+            return "Not selected"
+        }
+
+        let appKitRect = DisplayCoordinateSpace.quartzToAppKit(
+            rect: DisplayCoordinateSpace.normalizedQuartz(rect: quartzRect)
+        ).standardized
+        return "x:\(Int(appKitRect.minX)) y:\(Int(appKitRect.minY)) w:\(Int(appKitRect.width)) h:\(Int(appKitRect.height))"
     }
 
     private func actionItem(
@@ -321,74 +339,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return item
     }
 
-    private func showTextWindow(title: String, text: String) {
-        NSApp.activate(ignoringOtherApps: true)
-        let controller = TextWindowController(title: title, text: text)
-        recentWindow = controller
-        controller.showWindow(nil)
-    }
-
-    private func makeControlWindow() -> ControlWindowController {
-        let controller = ControlWindowController()
-        controller.onModeSelected = { [weak self] mode in
-            self?.setMode(mode)
-        }
-        controller.onRequestAccessibility = { [weak self] in
-            self?.requestAccessibility()
-        }
-        controller.onShowRecent = { [weak self] in
-            self?.showRecentDetections()
-        }
-        controller.onShowAudit = { [weak self] in
-            self?.showAuditLog()
-        }
-        return controller
-    }
-
-    private func updateControlWindow() {
-        controlWindow?.update(
-            mode: settings.mode,
-            accessibilityTrusted: AccessibilityPermission.isTrusted,
-            profiles: settings.profiles
-        )
-    }
-
-    private func rawAuditTail(limit: Int = 100) -> String {
-        guard
-            let content = try? String(contentsOf: auditLogger.fileURL, encoding: .utf8),
-            !content.isEmpty
-        else {
-            return ""
-        }
-
-        return content
-            .split(separator: "\n")
-            .suffix(limit)
-            .joined(separator: "\n")
-    }
-
     private func confirmLiveMode() -> Bool {
         NSApp.activate(ignoringOtherApps: true)
 
-        let first = NSAlert()
-        first.alertStyle = .warning
-        first.messageText = "Enable Live Mode?"
-        first.informativeText = "Live Mode will press matched Run buttons in Codex and Cursor using Accessibility. Monitor mode only records detections."
-        first.addButton(withTitle: "Continue")
-        first.addButton(withTitle: "Cancel")
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Enable Live Mode?"
+        alert.informativeText = "Live mode will capture the selected screen region, use on-device Apple OCR to find the target label, click it, then return your cursor."
+        alert.addButton(withTitle: "Enable Live")
+        alert.addButton(withTitle: "Cancel")
 
-        guard first.runModal() == .alertFirstButtonReturn else {
-            return false
-        }
+        return alert.runModal() == .alertFirstButtonReturn
+    }
 
-        let second = NSAlert()
-        second.alertStyle = .critical
-        second.messageText = "Confirm Live Mode"
-        second.informativeText = "This can execute commands shown in agent approval prompts. Only enable it when you are ready for Agent AutoAccept to click Run automatically."
-        second.addButton(withTitle: "Enable Live")
-        second.addButton(withTitle: "Stay in Monitor")
-
-        return second.runModal() == .alertFirstButtonReturn
+    private func startupStatusText() -> String {
+        let accessibility = MousePermission.hasAccess ? "granted" : "missing"
+        let screenRecording = ScreenCapturePermission.hasAccess ? "granted" : "missing"
+        return "Ready. Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
     }
 
     private func terminateDuplicateCopies() {
@@ -404,43 +371,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
-
-    private func formatEvent(_ event: AuditEvent) -> String {
-        let formatter = ISO8601DateFormatter()
-        return """
-        \(formatter.string(from: event.timestamp))  \(event.action.rawValue)  \(event.mode.displayName)
-        App: \(event.appName) (\(event.bundleIdentifier))
-        Window: \(event.windowTitle)
-        Rule: \(event.matchedRule)  Confidence: \(String(format: "%.2f", event.confidence))
-        Command: \(event.commandPreview)
-        """
-    }
 }
 
-private final class BroadcastingAuditSink: AuditSink {
-    var onEvent: ((AuditEvent) -> Void)?
+private final class ActivityLogStore {
+    private let fileURL: URL
+    private let queue = DispatchQueue(label: "dev.visionclicker.activity-log")
 
-    private let logger: JSONLAuditLogger
+    init(fileManager: FileManager = .default) {
+        let supportDirectory = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.homeDirectoryForCurrentUser
 
-    init(logger: JSONLAuditLogger) {
-        self.logger = logger
+        let directory = supportDirectory.appendingPathComponent("VisionClicker", isDirectory: true)
+        try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        fileURL = directory.appendingPathComponent("activity.log")
     }
 
-    func append(_ event: AuditEvent) throws {
-        try logger.append(event)
-        onEvent?(event)
-    }
-}
+    func append(_ line: String) {
+        queue.async { [fileURL] in
+            guard let data = "\(line)\n".data(using: .utf8) else {
+                return
+            }
 
-private enum AccessibilityPermission {
-    static var isTrusted: Bool {
-        AXIsProcessTrusted()
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                guard let handle = try? FileHandle(forWritingTo: fileURL) else {
+                    return
+                }
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            } else {
+                try? data.write(to: fileURL, options: .atomic)
+            }
+        }
     }
 
-    static func request() {
-        let options = [
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
-        ] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+    func recentLines(limit: Int) -> [String] {
+        queue.sync { [fileURL] in
+            guard
+                let data = try? Data(contentsOf: fileURL),
+                let text = String(data: data, encoding: .utf8)
+            else {
+                return []
+            }
+
+            return text
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .suffix(limit)
+                .reversed()
+                .map(String.init)
+        }
     }
 }

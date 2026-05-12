@@ -3,7 +3,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentAutoAccept",
+    name: "VisionClicker",
     platforms: [
         .macOS(.v13)
     ],
@@ -13,8 +13,8 @@ let package = Package(
             targets: ["AgentAutoAcceptCore"]
         ),
         .executable(
-            name: "AgentAutoAccept",
-            targets: ["AgentAutoAccept"]
+            name: "VisionClicker",
+            targets: ["VisionClicker"]
         ),
         .executable(
             name: "AgentAutoAcceptSelfTest",
@@ -26,8 +26,8 @@ let package = Package(
             name: "AgentAutoAcceptCore"
         ),
         .executableTarget(
-            name: "AgentAutoAccept",
-            dependencies: ["AgentAutoAcceptCore"]
+            name: "VisionClicker",
+            path: "Sources/AgentAutoAccept"
         ),
         .executableTarget(
             name: "AgentAutoAcceptSelfTest",
