@@ -102,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func runOnce() {
-        appendEvent("Run Once requested.")
+        appendEvent("Run Once requested for target labels: \(settings.targetLabel).")
         automationEngine.triggerManualRun()
     }
 
@@ -113,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        appendEvent("Cursor tab sweep requested for \(settings.cursorTabCount) tab\(settings.cursorTabCount == 1 ? "" : "s").")
+        appendEvent("Cursor tab sweep requested for target labels: \(settings.targetLabel), \(settings.cursorTabCount) tab\(settings.cursorTabCount == 1 ? "" : "s").")
         automationEngine.triggerCursorTabSweep()
     }
 
@@ -152,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.mode = mode
         persistSettings()
         automationEngine.apply(settings: settings)
-        appendEvent("Mode switched to \(mode.displayName).")
+        appendEvent("Mode switched to \(mode.displayName). Target labels: \(settings.targetLabel).")
         refreshUI()
     }
 

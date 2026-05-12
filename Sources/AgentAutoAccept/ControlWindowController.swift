@@ -1,6 +1,6 @@
 import AppKit
 
-final class ControlWindowController: NSWindowController {
+final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
     struct State {
         var mode: AutomationMode
         var statusText: String
@@ -148,16 +148,21 @@ final class ControlWindowController: NSWindowController {
         modeControl.action = #selector(modeChanged)
         targetField.target = self
         targetField.action = #selector(inputsChanged)
+        targetField.delegate = self
         intervalField.target = self
         intervalField.action = #selector(inputsChanged)
+        intervalField.delegate = self
         confidenceField.target = self
         confidenceField.action = #selector(inputsChanged)
+        confidenceField.delegate = self
         cursorTabSwitchingCheckbox.target = self
         cursorTabSwitchingCheckbox.action = #selector(inputsChanged)
         cursorTabCountField.target = self
         cursorTabCountField.action = #selector(inputsChanged)
+        cursorTabCountField.delegate = self
         cursorTabChangeIntervalField.target = self
         cursorTabChangeIntervalField.action = #selector(inputsChanged)
+        cursorTabChangeIntervalField.delegate = self
         accessibilityButton.target = self
         accessibilityButton.action = #selector(requestAccessibility)
         screenButton.target = self
@@ -218,7 +223,9 @@ final class ControlWindowController: NSWindowController {
     }
 
     @objc private func modeChanged() {
-        onModeSelected?(modeControl.selectedSegment == 0 ? .live : .paused)
+        let selectedMode: AutomationMode = modeControl.selectedSegment == 0 ? .live : .paused
+        commitPendingInputs()
+        onModeSelected?(selectedMode)
     }
 
     @objc private func inputsChanged() {
@@ -272,6 +279,14 @@ final class ControlWindowController: NSWindowController {
 
     @objc private func showActivity() {
         onShowActivity?()
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        inputsChanged()
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        inputsChanged()
     }
 
     private func permissionText(hasAccessibility: Bool, hasScreenCapture: Bool) -> String {

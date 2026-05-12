@@ -786,6 +786,11 @@ enum CursorTabDirection {
     }
 }
 
+struct KeyboardShortcutTrace {
+    let displayName: String
+    let eventCount: Int
+}
+
 final class KeyboardShortcutService {
     private enum ModifierKey {
         case command
@@ -802,7 +807,7 @@ final class KeyboardShortcutService {
 
     }
 
-    func pressCursorTabShortcut(_ direction: CursorTabDirection) throws {
+    func pressCursorTabShortcut(_ direction: CursorTabDirection) throws -> KeyboardShortcutTrace {
         guard MousePermission.hasAccess else {
             throw KeyboardShortcutError.noAccessibility
         }
@@ -812,18 +817,21 @@ final class KeyboardShortcutService {
             throw KeyboardShortcutError.eventSourceMissing
         }
 
-        try postModifier(.command, isDown: true, flags: [.maskCommand], source: source)
+        var eventCount = 0
+        eventCount += try postModifier(.command, isDown: true, flags: [.maskCommand], source: source)
         usleep(20_000)
-        try postModifier(.shift, isDown: true, flags: [.maskCommand, .maskShift], source: source)
+        eventCount += try postModifier(.shift, isDown: true, flags: [.maskCommand, .maskShift], source: source)
         usleep(30_000)
-        try postKey(direction.keyCode, flags: [.maskCommand, .maskShift], source: source)
+        eventCount += try postKey(direction.keyCode, flags: [.maskCommand, .maskShift], source: source)
         usleep(25_000)
-        try postModifier(.shift, isDown: false, flags: [.maskCommand], source: source)
+        eventCount += try postModifier(.shift, isDown: false, flags: [.maskCommand], source: source)
         usleep(20_000)
-        try postModifier(.command, isDown: false, flags: [], source: source)
+        eventCount += try postModifier(.command, isDown: false, flags: [], source: source)
+
+        return KeyboardShortcutTrace(displayName: direction.displayName, eventCount: eventCount)
     }
 
-    private func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags, source: CGEventSource) throws {
+    private func postKey(_ keyCode: CGKeyCode, flags: CGEventFlags, source: CGEventSource) throws -> Int {
         guard
             let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
             let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
@@ -836,6 +844,7 @@ final class KeyboardShortcutService {
         keyDown.post(tap: .cghidEventTap)
         usleep(45_000)
         keyUp.post(tap: .cghidEventTap)
+        return 2
     }
 
     private func postModifier(
@@ -843,7 +852,7 @@ final class KeyboardShortcutService {
         isDown: Bool,
         flags: CGEventFlags,
         source: CGEventSource
-    ) throws {
+    ) throws -> Int {
         guard let event = CGEvent(
             keyboardEventSource: source,
             virtualKey: modifier.keyCode,
@@ -854,30 +863,96 @@ final class KeyboardShortcutService {
 
         event.flags = flags
         event.post(tap: .cghidEventTap)
+        return 1
     }
 }
 
-enum CursorApplicationActivator {
+struct ApplicationActivationResult {
+    let name: String
+    let bundleIdentifier: String
+    let processIdentifier: pid_t
+    let source: String
+
+    var logDescription: String {
+        let bundleText = bundleIdentifier.isEmpty ? "unknown bundle" : bundleIdentifier
+        return "\(name) (\(bundleText), pid \(processIdentifier), \(source))"
+    }
+}
+
+enum TargetApplicationActivator {
     private static let knownBundleIdentifiers = [
         "com.todesktop.230313mzl4w4u92",
         "com.cursor.Cursor",
         "com.cursor.CursorEditor"
     ]
 
-    static func activateIfRunning() -> String? {
-        for bundleIdentifier in knownBundleIdentifiers {
-            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
-                app.activate(options: [.activateIgnoringOtherApps])
-                return app.localizedName ?? "Cursor"
-            }
+    static func activateForKeyboardShortcut(region: CGRect?) -> ApplicationActivationResult? {
+        if let region, let app = appOwningWindow(inQuartzRect: region) {
+            app.activate(options: [.activateIgnoringOtherApps])
+            return result(for: app, source: "selected region")
         }
 
-        if let app = NSWorkspace.shared.runningApplications.first(where: isCursorApp) {
+        if let app = cursorAppIfRunning() {
             app.activate(options: [.activateIgnoringOtherApps])
-            return app.localizedName ?? "Cursor"
+            return result(for: app, source: "Cursor fallback")
         }
 
         return nil
+    }
+
+    private static func appOwningWindow(inQuartzRect region: CGRect) -> NSRunningApplication? {
+        guard let windows = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements],
+            kCGNullWindowID
+        ) as? [[String: Any]] else {
+            return nil
+        }
+
+        let searchPoint = CGPoint(x: region.midX, y: region.midY)
+        let currentProcessIdentifier = getpid()
+
+        for window in windows {
+            guard
+                let ownerPIDNumber = window[kCGWindowOwnerPID as String] as? NSNumber,
+                let layerNumber = window[kCGWindowLayer as String] as? NSNumber,
+                let alphaNumber = window[kCGWindowAlpha as String] as? NSNumber,
+                let boundsDictionary = window[kCGWindowBounds as String] as? NSDictionary
+            else {
+                continue
+            }
+
+            let ownerPID = pid_t(ownerPIDNumber.int32Value)
+            guard ownerPID != currentProcessIdentifier else {
+                continue
+            }
+
+            guard layerNumber.intValue == 0, alphaNumber.doubleValue > 0.05 else {
+                continue
+            }
+
+            guard let bounds = CGRect(dictionaryRepresentation: boundsDictionary as CFDictionary) else {
+                continue
+            }
+
+            let windowBounds = bounds.standardized
+            guard windowBounds.contains(searchPoint) || windowBounds.intersects(region) else {
+                continue
+            }
+
+            return NSRunningApplication(processIdentifier: ownerPID)
+        }
+
+        return nil
+    }
+
+    private static func cursorAppIfRunning() -> NSRunningApplication? {
+        for bundleIdentifier in knownBundleIdentifiers {
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier).first {
+                return app
+            }
+        }
+
+        return NSWorkspace.shared.runningApplications.first(where: isCursorApp)
     }
 
     private static func isCursorApp(_ app: NSRunningApplication) -> Bool {
@@ -886,6 +961,15 @@ enum CursorApplicationActivator {
         }
 
         return app.bundleURL?.lastPathComponent.caseInsensitiveCompare("Cursor.app") == .orderedSame
+    }
+
+    private static func result(for app: NSRunningApplication, source: String) -> ApplicationActivationResult {
+        ApplicationActivationResult(
+            name: app.localizedName ?? "Unknown App",
+            bundleIdentifier: app.bundleIdentifier ?? "",
+            processIdentifier: app.processIdentifier,
+            source: source
+        )
     }
 }
 
@@ -1018,14 +1102,15 @@ final class VisionAutomationEngine {
         let tabCount = min(max(settings.cursorTabCount, 1), 40)
         let rightMoves = max(tabCount - 1, 0)
         let tabChangeInterval = min(max(settings.cursorTabChangeInterval, 0.05), 5.0)
+        let shortcutRegion = settings.captureRegionQuartz.map(DisplayCoordinateSpace.normalizedQuartz)
 
         let activatedApp = await MainActor.run {
-            CursorApplicationActivator.activateIfRunning()
+            TargetApplicationActivator.activateForKeyboardShortcut(region: shortcutRegion)
         }
         if let activatedApp {
-            emit("Activated \(activatedApp) for Cursor tab sweep.")
+            emit("Activated \(activatedApp.logDescription) for Cursor tab sweep.")
         } else {
-            emit("Cursor app is not running or could not be found. Keyboard shortcuts will go to the frontmost app.")
+            emit("Could not identify an app from the selected region or Cursor fallback. Keyboard shortcuts will go to the frontmost app.")
         }
 
         emit("Cursor tab sweep started: \(tabCount) tab\(tabCount == 1 ? "" : "s"), \(rightMoves) right move\(rightMoves == 1 ? "" : "s"), \(format(tabChangeInterval))s tab delay.")
@@ -1044,8 +1129,8 @@ final class VisionAutomationEngine {
                 continue
             }
 
-            try keyboardShortcutService.pressCursorTabShortcut(.next)
-            emit("Posted \(CursorTabDirection.next.displayName); waiting \(format(tabChangeInterval))s before scanning tab \(tabIndex + 2)/\(tabCount).")
+            let trace = try keyboardShortcutService.pressCursorTabShortcut(.next)
+            emit("Created and posted \(trace.eventCount) keyboard events for \(trace.displayName); waiting \(format(tabChangeInterval))s before scanning tab \(tabIndex + 2)/\(tabCount).")
             try await sleep(seconds: tabChangeInterval)
         }
 
@@ -1055,8 +1140,8 @@ final class VisionAutomationEngine {
         }
 
         for moveIndex in 0..<rightMoves {
-            try keyboardShortcutService.pressCursorTabShortcut(.previous)
-            emit("Posted \(CursorTabDirection.previous.displayName); returning left \(moveIndex + 1)/\(rightMoves).")
+            let trace = try keyboardShortcutService.pressCursorTabShortcut(.previous)
+            emit("Created and posted \(trace.eventCount) keyboard events for \(trace.displayName); returning left \(moveIndex + 1)/\(rightMoves).")
             try await sleep(seconds: tabChangeInterval)
         }
 
