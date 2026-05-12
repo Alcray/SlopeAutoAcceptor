@@ -1,3 +1,9 @@
+# Warning
+
+Vision Clicker can approve actions in other applications by clicking buttons automatically. You use it entirely at your own risk. AI agents can make mistakes, and company approval prompts usually exist for real safety, privacy, compliance, and operational reasons.
+
+Read the full [Disclaimer](docs/DISCLAIMER.md) before using this app.
+
 # Intro
 
 Sometimes admins in the companies don't allow auto-running mode for AI agents, argumenting it that "it can delete files" or "not safe for privacy", but in reality they simply don't understand the glory of AI and that the future is after unrestricted, autonomous AI SLOP! 
