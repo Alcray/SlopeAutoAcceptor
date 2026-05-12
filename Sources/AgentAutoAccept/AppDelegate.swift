@@ -151,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.targetLabel = cleanedTarget
         settings.pollingInterval = max(0.75, inputs.pollingInterval)
         settings.confidenceThreshold = min(max(inputs.confidenceThreshold, 0), 1)
+        settings.telemetryEnabled = inputs.telemetryEnabled
 
         persistSettings()
         automationEngine.apply(settings: settings)
@@ -260,7 +261,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hasScreenCapture: ScreenCapturePermission.hasAccess,
             targetLabel: settings.targetLabel,
             pollingInterval: settings.pollingInterval,
-            confidenceThreshold: settings.confidenceThreshold
+            confidenceThreshold: settings.confidenceThreshold,
+            telemetryEnabled: settings.telemetryEnabled
         )
         controlWindow?.update(with: state)
     }
@@ -355,7 +357,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startupStatusText() -> String {
         let accessibility = MousePermission.hasAccess ? "granted" : "missing"
         let screenRecording = ScreenCapturePermission.hasAccess ? "granted" : "missing"
-        return "Ready. Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
+        let telemetry = settings.telemetryEnabled ? "enabled" : "disabled"
+        return "Ready. Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Region: \(regionDescription()). Telemetry: \(telemetry). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
     }
 
     private func terminateDuplicateCopies() {

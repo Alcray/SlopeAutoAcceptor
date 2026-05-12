@@ -53,6 +53,27 @@ Raise it if the app clicks too eagerly. Lower it only if the OCR result is visib
 
 Always test with **Run Once** before switching to **Live**.
 
+## Local Click Samples
+
+When **Save local click samples** is enabled, each successful click creates a training sample under:
+
+```text
+~/Library/Application Support/VisionClicker/Telemetry
+```
+
+Each sample folder contains:
+
+- `before.png`: the selected region before the click.
+- `after.png`: the same region shortly after the click.
+- `metadata.json`: target labels, OCR text, click coordinates, region coordinates, confidence, mouse trace, and an automatic classification.
+
+The top-level `samples.jsonl` file contains one compact metadata record per sample.
+
+Classification is heuristic:
+
+- `correct` means the after-click OCR text changed and the target was not still visible near the clicked location.
+- `incorrect` means the after-click OCR text stayed the same or the target still appeared near the clicked location.
+
 ## Activity Log
 
 The Activity Log records captures, OCR decisions, computed screen coordinates, and the mouse trace. If a click lands wrong, the log should make the coordinate path visible enough to debug.

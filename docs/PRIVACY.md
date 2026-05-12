@@ -9,6 +9,16 @@ Vision Clicker is designed as a local utility.
 - Captured images are not sent to OpenAI, Ollama, or any other server.
 - The app does not require an API key or downloaded model.
 
+## Local Click Samples
+
+If **Save local click samples** is enabled, Vision Clicker stores before/after screenshots of the selected region and click metadata locally at:
+
+```text
+~/Library/Application Support/VisionClicker/Telemetry
+```
+
+These files may contain whatever text is visible inside the selected region. They are intended as local training data and are not uploaded by the app.
+
 ## Local Storage
 
 Vision Clicker stores settings in macOS `UserDefaults`, including:
@@ -18,6 +28,7 @@ Vision Clicker stores settings in macOS `UserDefaults`, including:
 - target labels
 - scan interval
 - confidence threshold
+- whether local click sample collection is enabled
 
 The Activity Log is in memory for the current app session.
 

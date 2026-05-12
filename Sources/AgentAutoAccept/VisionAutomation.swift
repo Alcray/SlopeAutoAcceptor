@@ -33,6 +33,7 @@ struct VisionAutomationSettings: Codable {
     var targetLabel: String
     var pollingInterval: TimeInterval
     var confidenceThreshold: Double
+    var telemetryEnabled: Bool
     var captureRegionQuartz: CGRect?
 
     init(
@@ -40,12 +41,14 @@ struct VisionAutomationSettings: Codable {
         targetLabel: String = "Run",
         pollingInterval: TimeInterval = 2.0,
         confidenceThreshold: Double = 0.20,
+        telemetryEnabled: Bool = true,
         captureRegionQuartz: CGRect? = nil
     ) {
         self.mode = mode
         self.targetLabel = targetLabel
         self.pollingInterval = pollingInterval
         self.confidenceThreshold = confidenceThreshold
+        self.telemetryEnabled = telemetryEnabled
         self.captureRegionQuartz = captureRegionQuartz
     }
 
@@ -54,6 +57,7 @@ struct VisionAutomationSettings: Codable {
         case targetLabel
         case pollingInterval
         case confidenceThreshold
+        case telemetryEnabled
         case captureRegionQuartz
     }
 
@@ -65,6 +69,7 @@ struct VisionAutomationSettings: Codable {
         targetLabel = try container.decodeIfPresent(String.self, forKey: .targetLabel) ?? defaultSettings.targetLabel
         pollingInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .pollingInterval) ?? defaultSettings.pollingInterval
         confidenceThreshold = try container.decodeIfPresent(Double.self, forKey: .confidenceThreshold) ?? defaultSettings.confidenceThreshold
+        telemetryEnabled = try container.decodeIfPresent(Bool.self, forKey: .telemetryEnabled) ?? defaultSettings.telemetryEnabled
         captureRegionQuartz = try container.decodeIfPresent(CGRect.self, forKey: .captureRegionQuartz)
     }
 
@@ -74,6 +79,7 @@ struct VisionAutomationSettings: Codable {
         try container.encode(targetLabel, forKey: .targetLabel)
         try container.encode(pollingInterval, forKey: .pollingInterval)
         try container.encode(confidenceThreshold, forKey: .confidenceThreshold)
+        try container.encode(telemetryEnabled, forKey: .telemetryEnabled)
         try container.encodeIfPresent(captureRegionQuartz, forKey: .captureRegionQuartz)
     }
 }
@@ -466,6 +472,40 @@ struct VisionTargetDecision {
     let note: String
 }
 
+struct OCRTextItem: Codable {
+    let text: String
+    let confidence: Double
+    let boundingBox: TelemetryRect
+}
+
+struct OCRTextSnapshot: Codable {
+    let items: [OCRTextItem]
+
+    var displayText: String {
+        items.map(\.text).joined(separator: " ")
+    }
+
+    var normalizedSignature: String {
+        displayText
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+    }
+
+    var preview: String {
+        items
+            .prefix(10)
+            .map { item in
+                "\"\(item.text)\" \(String(format: "%.2f", item.confidence))"
+            }
+            .joined(separator: ", ")
+    }
+}
+
+struct VisionTargetAnalysis {
+    let decision: VisionTargetDecision
+    let textSnapshot: OCRTextSnapshot
+}
+
 private struct ResolvedTargetCoordinates {
     let normalizedX: CGFloat
     let normalizedY: CGFloat
@@ -484,10 +524,10 @@ enum VisionModelError: LocalizedError {
 }
 
 final class VisionModelClient {
-    func locateTarget(
+    func analyzeTarget(
         pngData: Data,
         targetLabel: String
-    ) async throws -> VisionTargetDecision {
+    ) async throws -> VisionTargetAnalysis {
         try locateTargetWithAppleOCR(
             pngData: pngData,
             targetLabel: targetLabel
@@ -497,7 +537,7 @@ final class VisionModelClient {
     private func locateTargetWithAppleOCR(
         pngData: Data,
         targetLabel: String
-    ) throws -> VisionTargetDecision {
+    ) throws -> VisionTargetAnalysis {
         guard
             let imageSource = CGImageSourceCreateWithData(pngData as CFData, nil),
             let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
@@ -515,6 +555,20 @@ final class VisionModelClient {
 
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         try handler.perform([request])
+
+        let textSnapshot = OCRTextSnapshot(
+            items: (request.results ?? []).compactMap { observation -> OCRTextItem? in
+                guard let recognized = observation.topCandidates(1).first else {
+                    return nil
+                }
+
+                return OCRTextItem(
+                    text: recognized.string,
+                    confidence: Double(recognized.confidence),
+                    boundingBox: TelemetryRect(observation.boundingBox)
+                )
+            }
+        )
 
         let normalizedTargets = targets.map { label in
             (
@@ -551,25 +605,19 @@ final class VisionModelClient {
         }
 
         if let best = matches.max(by: { $0.1 < $1.1 })?.0 {
-            return best
+            return VisionTargetAnalysis(decision: best, textSnapshot: textSnapshot)
         }
 
-        let seenText = recognizedItems
-            .prefix(10)
-            .map { _, recognized in
-                "\"\(recognized.string)\" \(String(format: "%.2f", recognized.confidence))"
-            }
-            .joined(separator: ", ")
-
-        return VisionTargetDecision(
+        let decision = VisionTargetDecision(
             isFound: false,
             x: 0,
             y: 0,
             confidence: 0,
-            note: seenText.isEmpty
+            note: textSnapshot.preview.isEmpty
                 ? "OCR saw no text in the selected region."
-                : "OCR saw: \(seenText)"
+                : "OCR saw: \(textSnapshot.preview)"
         )
+        return VisionTargetAnalysis(decision: decision, textSnapshot: textSnapshot)
     }
 
     private func normalizedOCRText(_ text: String) -> String {
@@ -602,6 +650,206 @@ struct MouseActionTrace {
     let preClickPoint: CGPoint?
     let postActionPoint: CGPoint?
     let restoredPoint: CGPoint?
+}
+
+struct TelemetryPoint: Codable {
+    let x: Double
+    let y: Double
+
+    init(_ point: CGPoint) {
+        x = Double(point.x)
+        y = Double(point.y)
+    }
+}
+
+struct TelemetrySize: Codable {
+    let width: Double
+    let height: Double
+
+    init(_ size: CGSize) {
+        width = Double(size.width)
+        height = Double(size.height)
+    }
+}
+
+struct TelemetryRect: Codable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+
+    init(_ rect: CGRect) {
+        x = Double(rect.minX)
+        y = Double(rect.minY)
+        width = Double(rect.width)
+        height = Double(rect.height)
+    }
+}
+
+private struct TelemetryDecision: Codable {
+    let found: Bool
+    let x: Double
+    let y: Double
+    let confidence: Double
+    let note: String
+
+    init(_ decision: VisionTargetDecision) {
+        found = decision.isFound
+        x = decision.x
+        y = decision.y
+        confidence = decision.confidence
+        note = decision.note
+    }
+}
+
+private struct TelemetryMouseTrace: Codable {
+    let originalPoint: TelemetryPoint?
+    let targetPoint: TelemetryPoint
+    let preClickPoint: TelemetryPoint?
+    let postActionPoint: TelemetryPoint?
+    let restoredPoint: TelemetryPoint?
+
+    init(_ trace: MouseActionTrace) {
+        originalPoint = trace.originalPoint.map(TelemetryPoint.init)
+        targetPoint = TelemetryPoint(trace.targetPoint)
+        preClickPoint = trace.preClickPoint.map(TelemetryPoint.init)
+        postActionPoint = trace.postActionPoint.map(TelemetryPoint.init)
+        restoredPoint = trace.restoredPoint.map(TelemetryPoint.init)
+    }
+}
+
+private struct ClickTelemetrySample: Codable {
+    let schemaVersion: Int
+    let id: String
+    let timestamp: String
+    let classification: String
+    let classificationReason: String
+    let targetLabels: String
+    let confidenceThreshold: Double
+    let beforeImage: String
+    let afterImage: String
+    let capturePixelSize: TelemetrySize
+    let regionQuartz: TelemetryRect
+    let regionAppKit: TelemetryRect
+    let clickLocal: TelemetryPoint
+    let clickQuartz: TelemetryPoint
+    let clickAppKit: TelemetryPoint
+    let beforeDecision: TelemetryDecision
+    let afterDecision: TelemetryDecision
+    let mouseTrace: TelemetryMouseTrace
+    let beforeText: [OCRTextItem]
+    let afterText: [OCRTextItem]
+}
+
+private final class ClickTelemetryRecorder {
+    private let rootURL: URL
+    private let indexURL: URL
+    private let fileManager: FileManager
+    private let prettyEncoder = JSONEncoder()
+    private let jsonlEncoder = JSONEncoder()
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+        let supportDirectory = fileManager.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.homeDirectoryForCurrentUser
+        rootURL = supportDirectory.appendingPathComponent("VisionClicker/Telemetry", isDirectory: true)
+        indexURL = rootURL.appendingPathComponent("samples.jsonl")
+        prettyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try? fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+    }
+
+    func record(
+        settings: VisionAutomationSettings,
+        regionQuartz: CGRect,
+        capturePixelSize: CGSize,
+        beforePNGData: Data,
+        afterPNGData: Data,
+        beforeAnalysis: VisionTargetAnalysis,
+        afterAnalysis: VisionTargetAnalysis,
+        localPoint: CGPoint,
+        clickQuartz: CGPoint,
+        clickAppKit: CGPoint,
+        trace: MouseActionTrace
+    ) throws -> ClickTelemetrySample {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let id = "\(timestamp.replacingOccurrences(of: ":", with: "-"))-\(UUID().uuidString)"
+        let sampleDirectory = rootURL.appendingPathComponent(id, isDirectory: true)
+        try fileManager.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
+
+        let beforeImageURL = sampleDirectory.appendingPathComponent("before.png")
+        let afterImageURL = sampleDirectory.appendingPathComponent("after.png")
+        try beforePNGData.write(to: beforeImageURL, options: .atomic)
+        try afterPNGData.write(to: afterImageURL, options: .atomic)
+
+        let classification = classify(
+            beforeAnalysis: beforeAnalysis,
+            afterAnalysis: afterAnalysis
+        )
+
+        let sample = ClickTelemetrySample(
+            schemaVersion: 1,
+            id: id,
+            timestamp: timestamp,
+            classification: classification.value,
+            classificationReason: classification.reason,
+            targetLabels: settings.targetLabel,
+            confidenceThreshold: settings.confidenceThreshold,
+            beforeImage: beforeImageURL.path,
+            afterImage: afterImageURL.path,
+            capturePixelSize: TelemetrySize(capturePixelSize),
+            regionQuartz: TelemetryRect(regionQuartz),
+            regionAppKit: TelemetryRect(DisplayCoordinateSpace.quartzToAppKit(rect: regionQuartz).standardized),
+            clickLocal: TelemetryPoint(localPoint),
+            clickQuartz: TelemetryPoint(clickQuartz),
+            clickAppKit: TelemetryPoint(clickAppKit),
+            beforeDecision: TelemetryDecision(beforeAnalysis.decision),
+            afterDecision: TelemetryDecision(afterAnalysis.decision),
+            mouseTrace: TelemetryMouseTrace(trace),
+            beforeText: beforeAnalysis.textSnapshot.items,
+            afterText: afterAnalysis.textSnapshot.items
+        )
+
+        let metadataURL = sampleDirectory.appendingPathComponent("metadata.json")
+        try prettyEncoder.encode(sample).write(to: metadataURL, options: .atomic)
+        try appendToIndex(sample)
+        return sample
+    }
+
+    private func classify(
+        beforeAnalysis: VisionTargetAnalysis,
+        afterAnalysis: VisionTargetAnalysis
+    ) -> (value: String, reason: String) {
+        let beforeSignature = beforeAnalysis.textSnapshot.normalizedSignature
+        let afterSignature = afterAnalysis.textSnapshot.normalizedSignature
+        let sameText = !beforeSignature.isEmpty && beforeSignature == afterSignature
+        let sameTargetStillVisible = afterAnalysis.decision.isFound
+            && abs(beforeAnalysis.decision.x - afterAnalysis.decision.x) <= 0.08
+            && abs(beforeAnalysis.decision.y - afterAnalysis.decision.y) <= 0.08
+
+        if sameText {
+            return ("incorrect", "after OCR text matched before OCR text")
+        }
+
+        if sameTargetStillVisible {
+            return ("incorrect", "target still visible near clicked location")
+        }
+
+        return ("correct", "after OCR text changed and target was not visible near clicked location")
+    }
+
+    private func appendToIndex(_ sample: ClickTelemetrySample) throws {
+        let data = try jsonlEncoder.encode(sample) + Data("\n".utf8)
+        if fileManager.fileExists(atPath: indexURL.path) {
+            let handle = try FileHandle(forWritingTo: indexURL)
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } else {
+            try data.write(to: indexURL, options: .atomic)
+        }
+    }
 }
 
 final class MouseClickService {
@@ -733,6 +981,7 @@ final class VisionAutomationEngine {
     private let captureService = ScreenCaptureService()
     private let modelClient = VisionModelClient()
     private let clickService = MouseClickService()
+    private let telemetryRecorder = ClickTelemetryRecorder()
 
     private var settings = VisionAutomationSettings()
     private var timer: Timer?
@@ -822,10 +1071,11 @@ final class VisionAutomationEngine {
         let capture = try captureService.capturePNG(inQuartzRect: region)
         emit("Captured \(Int(capture.pixelSize.width))x\(Int(capture.pixelSize.height)) [\(trigger), Apple OCR].")
 
-        let decision = try await modelClient.locateTarget(
+        let beforeAnalysis = try await modelClient.analyzeTarget(
             pngData: capture.pngData,
             targetLabel: settings.targetLabel
         )
+        let decision = beforeAnalysis.decision
 
         guard decision.isFound else {
             emit("Target \"\(settings.targetLabel)\" not found. \(decision.note)")
@@ -859,6 +1109,55 @@ final class VisionAutomationEngine {
         let appKitPoint = DisplayCoordinateSpace.quartzToAppKit(point: clickPoint)
         emit("Clicked \"\(settings.targetLabel)\" local \(format(localPoint)) -> screen \(format(appKitPoint)) app, \(format(clickPoint)) quartz.")
         emit("Mouse trace: \(format(trace)).")
+
+        if settings.telemetryEnabled {
+            await recordTelemetry(
+                settings: settings,
+                region: region,
+                capture: capture,
+                beforeAnalysis: beforeAnalysis,
+                localPoint: localPoint,
+                clickPoint: clickPoint,
+                appKitPoint: appKitPoint,
+                trace: trace
+            )
+        }
+    }
+
+    private func recordTelemetry(
+        settings: VisionAutomationSettings,
+        region: CGRect,
+        capture: CapturedRegionImage,
+        beforeAnalysis: VisionTargetAnalysis,
+        localPoint: CGPoint,
+        clickPoint: CGPoint,
+        appKitPoint: CGPoint,
+        trace: MouseActionTrace
+    ) async {
+        do {
+            try await Task.sleep(nanoseconds: 700_000_000)
+            let afterCapture = try captureService.capturePNG(inQuartzRect: region)
+            let afterAnalysis = try await modelClient.analyzeTarget(
+                pngData: afterCapture.pngData,
+                targetLabel: settings.targetLabel
+            )
+            let sample = try telemetryRecorder.record(
+                settings: settings,
+                regionQuartz: region,
+                capturePixelSize: capture.pixelSize,
+                beforePNGData: capture.pngData,
+                afterPNGData: afterCapture.pngData,
+                beforeAnalysis: beforeAnalysis,
+                afterAnalysis: afterAnalysis,
+                localPoint: localPoint,
+                clickQuartz: clickPoint,
+                clickAppKit: appKitPoint,
+                trace: trace
+            )
+            emit("Telemetry saved: \(sample.classification) (\(sample.classificationReason)) id \(sample.id).")
+        } catch {
+            emit("Telemetry failed: \(error.localizedDescription)")
+        }
     }
 
     private func emit(_ message: String) {

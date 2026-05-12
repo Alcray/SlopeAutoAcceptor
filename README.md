@@ -11,6 +11,7 @@ It is designed for small approval controls such as `Run`, `Fetch`, or `Retry` in
 - Detect exact target labels with on-device Apple OCR.
 - Support multiple labels, for example `Run, Fetch, Retry`.
 - Click the detected label and restore the cursor.
+- Optionally save local click samples for future model training.
 - Run once manually or keep scanning in Live mode.
 - Work with multi-monitor layouts, including displays above or beside the main display.
 
@@ -19,6 +20,12 @@ It is designed for small approval controls such as `Run`, `Fetch`, or `Retry` in
 Vision Clicker uses Apple Vision OCR on your Mac. It does not require an API key, does not download a model, and does not send captured images to a server.
 
 The app stores settings locally in `UserDefaults`, including the selected region, target labels, scan interval, and confidence threshold.
+
+When **Save local click samples** is enabled, Vision Clicker also stores before/after region screenshots and metadata locally under:
+
+```text
+~/Library/Application Support/VisionClicker/Telemetry
+```
 
 See [Privacy](docs/PRIVACY.md) for details.
 
@@ -62,8 +69,9 @@ That installs and launches:
 4. Set a minimum confidence. `0.20` is a practical starting point for small buttons.
 5. Click **Pick Region** and drag around the UI area that contains the target button.
 6. Use **Show Region** to verify the saved rectangle.
-7. Click **Run Once** to test.
-8. Switch to **Live** when the single run behaves correctly.
+7. Leave **Save local click samples** enabled if you want before/after screenshots and coordinate metadata for training data.
+8. Click **Run Once** to test.
+9. Switch to **Live** when the single run behaves correctly.
 
 OCR matching is exact after light normalization. A target label `Run` matches a `Run` button, but not `Running`, `rerun`, or `Auto-Run`.
 

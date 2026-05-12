@@ -7,6 +7,7 @@
 - No OpenAI, Ollama, model, API key, or setup controls are visible.
 - Activity Log remains available for debugging.
 - README, User Guide, and Privacy docs describe the OCR-only product.
+- Local click sample collection is described clearly because it saves screenshots.
 
 ## Local Verification
 
@@ -26,9 +27,11 @@ Then test:
 4. Set Target Labels to `Run`.
 5. Set Min Confidence to `0.20`.
 6. Run **Show Region**.
-7. Run **Run Once**.
-8. Confirm the app clicks the button and restores the cursor.
-9. Confirm `Run` does not match nearby text such as `Running` or `Auto-Run`.
+7. Enable **Save local click samples**.
+8. Run **Run Once**.
+9. Confirm the app clicks the button and restores the cursor.
+10. Confirm a sample folder appears under `~/Library/Application Support/VisionClicker/Telemetry`.
+11. Review `metadata.json` and the before/after screenshots.
 
 ## Packaging Notes
 

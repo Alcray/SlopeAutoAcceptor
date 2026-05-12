@@ -11,12 +11,14 @@ final class ControlWindowController: NSWindowController {
         var targetLabel: String
         var pollingInterval: TimeInterval
         var confidenceThreshold: Double
+        var telemetryEnabled: Bool
     }
 
     struct Inputs {
         var targetLabel: String
         var pollingInterval: TimeInterval
         var confidenceThreshold: Double
+        var telemetryEnabled: Bool
     }
 
     var onModeSelected: ((AutomationMode) -> Void)?
@@ -43,6 +45,7 @@ final class ControlWindowController: NSWindowController {
     private let targetField = NSTextField(string: "")
     private let intervalField = NSTextField(string: "2.0")
     private let confidenceField = NSTextField(string: "0.58")
+    private let telemetryCheckbox = NSButton(checkboxWithTitle: "Save local click samples", target: nil, action: nil)
 
     private let accessibilityButton = NSButton(title: "Accessibility", target: nil, action: nil)
     private let screenButton = NSButton(title: "Screen Recording", target: nil, action: nil)
@@ -86,7 +89,8 @@ final class ControlWindowController: NSWindowController {
         let grid = NSGridView(views: [
             [Self.makeLabel("Target Labels"), targetField],
             [Self.makeLabel("Scan Interval (s)"), intervalField],
-            [Self.makeLabel("Min Confidence"), confidenceField]
+            [Self.makeLabel("Min Confidence"), confidenceField],
+            [Self.makeLabel("Telemetry"), telemetryCheckbox]
         ])
         grid.rowSpacing = 8
         grid.columnSpacing = 10
@@ -135,6 +139,8 @@ final class ControlWindowController: NSWindowController {
         intervalField.action = #selector(inputsChanged)
         confidenceField.target = self
         confidenceField.action = #selector(inputsChanged)
+        telemetryCheckbox.target = self
+        telemetryCheckbox.action = #selector(inputsChanged)
         accessibilityButton.target = self
         accessibilityButton.action = #selector(requestAccessibility)
         screenButton.target = self
@@ -175,10 +181,12 @@ final class ControlWindowController: NSWindowController {
         if confidenceField.currentEditor() == nil {
             confidenceField.stringValue = String(format: "%.2f", state.confidenceThreshold)
         }
+        telemetryCheckbox.state = state.telemetryEnabled ? .on : .off
 
         showRegionButton.isEnabled = state.regionText != "Not selected"
         runOnceButton.isEnabled = !state.running
         modeControl.isEnabled = !state.running
+        telemetryCheckbox.isEnabled = !state.running
     }
 
     @objc private func modeChanged() {
@@ -197,7 +205,8 @@ final class ControlWindowController: NSWindowController {
             Inputs(
                 targetLabel: targetField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
                 pollingInterval: interval,
-                confidenceThreshold: confidence
+                confidenceThreshold: confidence,
+                telemetryEnabled: telemetryCheckbox.state == .on
             )
         )
     }
