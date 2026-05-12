@@ -223,7 +223,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         cursorTabSwitchingCheckbox.isEnabled = !state.running
         cursorTabCountField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
         cursorTabChangeIntervalField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
-        modeControl.isEnabled = !state.running
+        modeControl.isEnabled = true
     }
 
     @objc private func modeChanged() {

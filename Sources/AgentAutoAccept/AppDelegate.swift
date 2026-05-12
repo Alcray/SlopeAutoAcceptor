@@ -23,6 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         terminateDuplicateCopies()
         NSApp.setActivationPolicy(.regular)
+        let restoredLiveMode = settings.mode == .live
+        if restoredLiveMode {
+            settings.mode = .paused
+        }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
@@ -34,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showControlWindow()
 
         appendEvent(startupStatusText())
+        if restoredLiveMode {
+            appendEvent("Started paused instead of restoring Live mode.")
+        }
         appendEvent("Controls ready: Pick Region, Show Region, Run Once, Run Tabs.")
     }
 
@@ -154,6 +161,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         persistSettings()
         automationEngine.apply(settings: settings)
         appendEvent(modeChangeText(mode))
+        if mode == .paused {
+            appendEvent("Active automation run cancelled.")
+        }
         refreshUI()
     }
 

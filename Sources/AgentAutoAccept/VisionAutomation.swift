@@ -985,9 +985,13 @@ final class VisionAutomationEngine {
     private var settings = VisionAutomationSettings()
     private var timer: Timer?
     private var inFlight = false
+    private var runTask: Task<Void, Never>?
 
     func apply(settings: VisionAutomationSettings) {
         self.settings = settings
+        if settings.mode == .paused {
+            cancelActiveRun()
+        }
         rebuildTimer()
     }
 
@@ -1000,6 +1004,7 @@ final class VisionAutomationEngine {
     }
 
     func stop() {
+        cancelActiveRun()
         timer?.invalidate()
         timer = nil
     }
@@ -1009,7 +1014,9 @@ final class VisionAutomationEngine {
         timer = nil
 
         guard settings.mode == .live else {
-            onRunningChanged?(false)
+            if !inFlight {
+                onRunningChanged?(false)
+            }
             return
         }
 
@@ -1040,7 +1047,7 @@ final class VisionAutomationEngine {
         onRunningChanged?(true)
 
         let snapshot = settings
-        Task.detached(priority: .utility) { [weak self] in
+        runTask = Task.detached(priority: .utility) { [weak self] in
             guard let self else {
                 return
             }
@@ -1048,12 +1055,15 @@ final class VisionAutomationEngine {
             defer {
                 Task { @MainActor [weak self] in
                     self?.inFlight = false
+                    self?.runTask = nil
                     self?.onRunningChanged?(false)
                 }
             }
 
             do {
                 try await self.runCycle(settings: snapshot, trigger: trigger)
+            } catch is CancellationError {
+                self.emit("Automation run cancelled.")
             } catch {
                 self.emit("Cycle failed: \(error.localizedDescription)")
             }
@@ -1069,7 +1079,7 @@ final class VisionAutomationEngine {
         onRunningChanged?(true)
 
         let snapshot = settings
-        Task.detached(priority: .utility) { [weak self] in
+        runTask = Task.detached(priority: .utility) { [weak self] in
             guard let self else {
                 return
             }
@@ -1077,12 +1087,15 @@ final class VisionAutomationEngine {
             defer {
                 Task { @MainActor [weak self] in
                     self?.inFlight = false
+                    self?.runTask = nil
                     self?.onRunningChanged?(false)
                 }
             }
 
             do {
                 try await self.runCursorTabSweep(settings: snapshot)
+            } catch is CancellationError {
+                self.emit("Cursor tab sweep cancelled.")
             } catch {
                 self.emit("Cursor tab sweep failed: \(error.localizedDescription)")
             }
@@ -1123,6 +1136,7 @@ final class VisionAutomationEngine {
         var clickedTabs = 0
 
         for tabIndex in 0..<tabCount {
+            try Task.checkCancellation()
             let didClick = try await scanAndClick(
                 settings: settings,
                 trigger: "cursor-tab \(tabIndex + 1)/\(tabCount)"
@@ -1135,6 +1149,7 @@ final class VisionAutomationEngine {
                 continue
             }
 
+            try Task.checkCancellation()
             let trace = try keyboardShortcutService.pressCursorTabShortcut(.next)
             emit("Created and posted \(trace.eventCount) keyboard events for \(trace.displayName); waiting \(format(tabChangeInterval))s before scanning tab \(tabIndex + 2)/\(tabCount).")
             try await sleep(seconds: tabChangeInterval)
@@ -1146,6 +1161,7 @@ final class VisionAutomationEngine {
         }
 
         for moveIndex in 0..<rightMoves {
+            try Task.checkCancellation()
             let trace = try keyboardShortcutService.pressCursorTabShortcut(.previous)
             emit("Created and posted \(trace.eventCount) keyboard events for \(trace.displayName); returning left \(moveIndex + 1)/\(rightMoves).")
             try await sleep(seconds: tabChangeInterval)
@@ -1156,6 +1172,8 @@ final class VisionAutomationEngine {
 
     @discardableResult
     private func scanAndClick(settings: VisionAutomationSettings, trigger: String) async throws -> Bool {
+        try Task.checkCancellation()
+
         guard let storedRegion = settings.captureRegionQuartz else {
             emit("No capture region selected yet.")
             return false
@@ -1168,11 +1186,13 @@ final class VisionAutomationEngine {
 
         let capture = try captureService.capturePNG(inQuartzRect: region)
         emit("Captured \(Int(capture.pixelSize.width))x\(Int(capture.pixelSize.height)) [\(trigger), Apple OCR].")
+        try Task.checkCancellation()
 
         let decision = try await modelClient.locateTarget(
             pngData: capture.pngData,
             targetLabel: settings.targetLabel
         )
+        try Task.checkCancellation()
 
         guard decision.isFound else {
             emit("Target \"\(settings.targetLabel)\" not found. \(decision.note)")
@@ -1202,11 +1222,16 @@ final class VisionAutomationEngine {
             y: region.minY + localPoint.y
         )
 
+        try Task.checkCancellation()
         let trace = try clickService.click(atQuartzPoint: clickPoint, restorePointer: true)
         let appKitPoint = DisplayCoordinateSpace.quartzToAppKit(point: clickPoint)
         emit("Clicked \"\(settings.targetLabel)\" local \(format(localPoint)) -> screen \(format(appKitPoint)) app, \(format(clickPoint)) quartz.")
         emit("Mouse trace: \(format(trace)).")
         return true
+    }
+
+    private func cancelActiveRun() {
+        runTask?.cancel()
     }
 
     private func emit(_ message: String) {
