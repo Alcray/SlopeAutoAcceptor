@@ -1,8 +1,33 @@
-# Vision Clicker
+# Intro
 
+Sometimes admins in the companies don't allow auto-running mode for AI agents, argumenting it that "it can delete files" or "not safe for privacy", but in reality they simply don't understand the glory of AI and that the future is after unrestricted, autonomous AI SLOP! 
+
+This simple app allows you to work with truly autonomous AI agents by automatically clicking on the "run" button, that your AI agent prompts because of some restrictions. 
+
+The current setup does not work with AI agent in the background and requires the Agent window to be opened for clicking. Though the setup is tested and working with double monitor setup. 
+
+# Formally 
 Vision Clicker is a local macOS menu bar app that watches a user-selected screen region, finds a visible text button with Apple Vision OCR, clicks it, and then restores the cursor to its original position.
 
 It is designed for small approval controls such as `Run`, `Fetch`, or `Retry` in coding-agent UIs.
+
+
+## Install by asking your AI agent:
+
+```text
+Clone git@github.com:Alcray/SlopeAutoAcceptor.git,
+then run scripts/install_app.sh from the repository root.
+```
+
+Or install manually from Terminal:
+
+```bash
+git clone git@github.com:Alcray/SlopeAutoAcceptor.git
+cd SlopeAutoAcceptor
+sh scripts/install_app.sh
+```
+
+The installer builds the app, copies it to `/Applications/Vision Clicker.app`, and launches it.
 
 ## Features
 
@@ -27,24 +52,6 @@ See [Privacy](docs/PRIVACY.md) for details.
 - macOS 13 or newer.
 - Accessibility permission, used to perform the synthetic mouse click.
 - Screen Recording permission, used to capture the selected region.
-
-## Install
-
-Install by asking your AI agent:
-
-```text
-Clone git@github.com:Alcray/SlopeAutoAcceptor.git, then run scripts/install_app.sh from the repository root.
-```
-
-Or install from Terminal:
-
-```bash
-git clone git@github.com:Alcray/SlopeAutoAcceptor.git
-cd SlopeAutoAcceptor
-sh scripts/install_app.sh
-```
-
-The installer builds the app, copies it to `/Applications/Vision Clicker.app`, and launches it.
 
 ## Build
 
