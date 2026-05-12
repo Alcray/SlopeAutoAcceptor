@@ -43,6 +43,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         target: nil,
         action: nil
     )
+    private let versionLabel = NSTextField(labelWithString: AppVersion.current.displayText)
     private let statusLabel = NSTextField(labelWithString: "")
     private let regionLabel = NSTextField(labelWithString: "")
     private let permissionLabel = NSTextField(labelWithString: "")
@@ -73,6 +74,8 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         let title = NSTextField(labelWithString: "Vision Clicker")
         title.font = .boldSystemFont(ofSize: 24)
 
+        versionLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        versionLabel.textColor = .secondaryLabelColor
         statusLabel.font = .systemFont(ofSize: 15, weight: .medium)
         regionLabel.font = .systemFont(ofSize: 13)
         regionLabel.textColor = .secondaryLabelColor
@@ -112,6 +115,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         grid.column(at: 1).xPlacement = .fill
 
         content.addArrangedSubview(title)
+        content.addArrangedSubview(versionLabel)
         content.addArrangedSubview(statusLabel)
         content.addArrangedSubview(modeControl)
         content.addArrangedSubview(grid)

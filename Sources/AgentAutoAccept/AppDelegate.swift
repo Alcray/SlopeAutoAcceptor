@@ -223,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
         menu.addItem(disabledItem("Vision Clicker: \(statusSummaryText())"))
+        menu.addItem(disabledItem("Version: \(AppVersion.current.displayText)"))
         menu.addItem(disabledItem("Engine: Apple OCR"))
         menu.addItem(disabledItem("Region: \(regionDescription())"))
 
@@ -381,7 +382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let accessibility = MousePermission.hasAccess ? "granted" : "missing"
         let screenRecording = ScreenCapturePermission.hasAccess ? "granted" : "missing"
         let tabSwitching = settings.isCursorTabSwitchingEnabled ? "on" : "off"
-        return "Ready. Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Cursor tab switching: \(tabSwitching). Cursor tabs: \(settings.cursorTabCount). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
+        return "Ready. Version: \(AppVersion.current.detailedText). Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Cursor tab switching: \(tabSwitching). Cursor tabs: \(settings.cursorTabCount). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
     }
 
     private func terminateDuplicateCopies() {
