@@ -28,6 +28,24 @@ See [Privacy](docs/PRIVACY.md) for details.
 - Accessibility permission, used to perform the synthetic mouse click.
 - Screen Recording permission, used to capture the selected region.
 
+## Install
+
+Install by asking your AI agent:
+
+```text
+Clone git@github.com:Alcray/SlopeAutoAcceptor.git, then run scripts/install_app.sh from the repository root.
+```
+
+Or install from Terminal:
+
+```bash
+git clone git@github.com:Alcray/SlopeAutoAcceptor.git
+cd SlopeAutoAcceptor
+sh scripts/install_app.sh
+```
+
+The installer builds the app, copies it to `/Applications/Vision Clicker.app`, and launches it.
+
 ## Build
 
 ```bash
