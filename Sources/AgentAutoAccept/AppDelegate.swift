@@ -7,12 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let automationEngine = VisionAutomationEngine()
     private let regionSelector = ScreenRegionSelector()
     private let regionHighlighter = ScreenRegionHighlighter()
+    private let updateChecker = GitHubReleaseUpdateChecker()
 
     private var statusItem: NSStatusItem?
     private var controlWindow: ControlWindowController?
     private var recentWindow: TextWindowController?
     private var recentEvents: [String] = []
     private var isRunInProgress = false
+    private var isCheckingForUpdates = false
 
     override init() {
         settings = settingsStore.load()
@@ -42,6 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             appendEvent("Started paused instead of restoring Live mode.")
         }
         appendEvent("Controls ready: Pick Region, Show Region, Run Once, Run Tabs.")
+        checkForUpdates(isAutomatic: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -143,6 +146,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showTextWindow(title: "Vision Clicker Activity", text: text)
     }
 
+    @objc private func checkForUpdatesFromMenu() {
+        checkForUpdates(isAutomatic: false)
+    }
+
     @objc private func quit() {
         NSApp.terminate(nil)
     }
@@ -235,6 +242,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(disabledItem("Vision Clicker: \(statusSummaryText())"))
         menu.addItem(disabledItem("Version: \(AppVersion.current.displayText)"))
+        let updateItem = actionItem(
+            isCheckingForUpdates ? "Checking for Updates..." : "Check for Updates...",
+            #selector(checkForUpdatesFromMenu)
+        )
+        updateItem.isEnabled = !isCheckingForUpdates
+        menu.addItem(updateItem)
         menu.addItem(disabledItem("Engine: Apple OCR"))
         menu.addItem(disabledItem("Region: \(regionDescription())"))
 
@@ -294,7 +307,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             confidenceThreshold: settings.confidenceThreshold,
             isCursorTabSwitchingEnabled: settings.isCursorTabSwitchingEnabled,
             cursorTabCount: settings.cursorTabCount,
-            cursorTabChangeInterval: settings.cursorTabChangeInterval
+            cursorTabChangeInterval: settings.cursorTabChangeInterval,
+            isCheckingForUpdates: isCheckingForUpdates
         )
         controlWindow?.update(with: state)
     }
@@ -329,8 +343,123 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onShowActivity = { [weak self] in
             self?.showActivityLog()
         }
+        controller.onCheckForUpdates = { [weak self] in
+            self?.checkForUpdates(isAutomatic: false)
+        }
 
         return controller
+    }
+
+    private func checkForUpdates(isAutomatic: Bool) {
+        guard !isCheckingForUpdates else {
+            if !isAutomatic {
+                appendEvent("Update check already in progress.")
+            }
+            return
+        }
+
+        isCheckingForUpdates = true
+        appendEvent(isAutomatic ? "Checking GitHub for updates." : "Manual update check requested.")
+        refreshUI()
+
+        let currentVersion = AppVersion.current.version
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            let result: Result<UpdateCheckResult, Error>
+            do {
+                result = .success(try await self.updateChecker.checkForUpdate(currentVersion: currentVersion))
+            } catch {
+                result = .failure(error)
+            }
+
+            await MainActor.run {
+                self.finishUpdateCheck(result, isAutomatic: isAutomatic)
+            }
+        }
+    }
+
+    private func finishUpdateCheck(_ result: Result<UpdateCheckResult, Error>, isAutomatic: Bool) {
+        isCheckingForUpdates = false
+
+        switch result {
+        case let .success(.updateAvailable(update)):
+            appendEvent("Update available: \(update.tagName).")
+            refreshUI()
+            promptForUpdate(update)
+        case let .success(.upToDate(latestVersion)):
+            appendEvent("No update available. Latest published version: \(latestVersion).")
+            refreshUI()
+            if !isAutomatic {
+                showNoUpdateAlert(latestVersion: latestVersion)
+            }
+        case .success(.noPublishedVersions):
+            appendEvent("No GitHub releases or version tags are published yet.")
+            refreshUI()
+            if !isAutomatic {
+                showNoPublishedVersionsAlert()
+            }
+        case let .failure(error):
+            appendEvent("Update check failed: \(error.localizedDescription)")
+            refreshUI()
+            if !isAutomatic {
+                showUpdateCheckFailedAlert(error)
+            }
+        }
+    }
+
+    private func promptForUpdate(_ update: AvailableUpdate) {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Vision Clicker \(update.tagName) is available"
+        alert.informativeText = "You are running \(AppVersion.current.displayText). Open the GitHub release to download the update?"
+        alert.addButton(withTitle: "Update")
+        alert.addButton(withTitle: "Later")
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            appendEvent("Update postponed: \(update.tagName).")
+            return
+        }
+
+        NSWorkspace.shared.open(update.actionURL)
+        appendEvent("Opened update URL: \(update.actionURL.absoluteString)")
+    }
+
+    private func showNoUpdateAlert(latestVersion: String) {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Vision Clicker is up to date"
+        alert.informativeText = "Installed: \(AppVersion.current.displayText)\nLatest published version: \(latestVersion)"
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showNoPublishedVersionsAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "No published updates yet"
+        alert.informativeText = "GitHub does not have a Release or version tag for Vision Clicker yet."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showUpdateCheckFailedAlert(_ error: Error) {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Could not check for updates"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func showTextWindow(title: String, text: String) {

@@ -480,6 +480,7 @@ final class ScreenCaptureService {
 
 struct VisionTargetDecision {
     let isFound: Bool
+    let matchedLabel: String?
     let x: Double
     let y: Double
     let confidence: Double
@@ -562,6 +563,7 @@ final class VisionModelClient {
             let box = observation.boundingBox
             let decision = VisionTargetDecision(
                 isFound: true,
+                matchedLabel: matchedTarget.label,
                 x: Double(box.midX),
                 y: Double(1 - box.midY),
                 confidence: Double(recognized.confidence),
@@ -583,6 +585,7 @@ final class VisionModelClient {
 
         return VisionTargetDecision(
             isFound: false,
+            matchedLabel: nil,
             x: 0,
             y: 0,
             confidence: 0,
@@ -1193,9 +1196,10 @@ final class VisionAutomationEngine {
             targetLabel: settings.targetLabel
         )
         try Task.checkCancellation()
+        let targetLabels = TargetLabelParser.labels(from: settings.targetLabel).joined(separator: ", ")
 
         guard decision.isFound else {
-            emit("Target \"\(settings.targetLabel)\" not found. \(decision.note)")
+            emit("Target labels [\(targetLabels)] not found. \(decision.note)")
             return false
         }
 
@@ -1209,9 +1213,8 @@ final class VisionAutomationEngine {
             capturePixelSize: capture.pixelSize,
             region: region
         )
-        emit(
-            "Decision for \"\(settings.targetLabel)\": raw=(\(format(decision.x)),\(format(decision.y))) \(resolved.source), confidence \(format(decision.confidence)).\(decision.note.isEmpty ? "" : " \(decision.note)")"
-        )
+        let matchedLabel = decision.matchedLabel ?? targetLabels
+        emit("Decision for \"\(matchedLabel)\": raw=(\(format(decision.x)),\(format(decision.y))) \(resolved.source), confidence \(format(decision.confidence)).\(decision.note.isEmpty ? "" : " \(decision.note)")")
 
         let localPoint = CGPoint(
             x: resolved.normalizedX * region.width,
@@ -1225,7 +1228,7 @@ final class VisionAutomationEngine {
         try Task.checkCancellation()
         let trace = try clickService.click(atQuartzPoint: clickPoint, restorePointer: true)
         let appKitPoint = DisplayCoordinateSpace.quartzToAppKit(point: clickPoint)
-        emit("Clicked \"\(settings.targetLabel)\" local \(format(localPoint)) -> screen \(format(appKitPoint)) app, \(format(clickPoint)) quartz.")
+        emit("Clicked \"\(matchedLabel)\" local \(format(localPoint)) -> screen \(format(appKitPoint)) app, \(format(clickPoint)) quartz.")
         emit("Mouse trace: \(format(trace)).")
         return true
     }

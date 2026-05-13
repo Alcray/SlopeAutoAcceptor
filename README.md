@@ -105,3 +105,15 @@ More detail is in the [User Guide](docs/USER_GUIDE.md).
 ## Release
 
 Use [Release Checklist](docs/RELEASE_CHECKLIST.md) before publishing a build.
+
+To publish a GitHub-backed version that Vision Clicker can detect from **Check for Updates**:
+
+```bash
+scripts/release.sh
+```
+
+The release script uses `gh` to read the latest GitHub Release, builds the app with the next patch version, pushes a `vX.Y.Z` tag, creates a GitHub Release, and uploads a zipped macOS app. The default policy is always the smallest bump, such as `v0.1.1` to `v0.1.2`. Use `minor`, `major`, or an explicit version only when that larger bump is deliberately requested:
+
+```bash
+ALLOW_NON_PATCH_BUMP=1 scripts/release.sh minor
+```

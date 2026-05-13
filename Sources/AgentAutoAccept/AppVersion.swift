@@ -9,7 +9,7 @@ struct AppVersion {
     let branch: String
 
     init(bundle: Bundle) {
-        version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.1-dev"
+        version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.2-dev"
         build = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "dev"
         commit = bundle.object(forInfoDictionaryKey: "VisionClickerBuildCommit") as? String ?? "dev"
         branch = bundle.object(forInfoDictionaryKey: "VisionClickerBuildBranch") as? String ?? "dev"
