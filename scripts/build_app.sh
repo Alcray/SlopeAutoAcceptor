@@ -16,12 +16,32 @@ cd "$ROOT_DIR"
 swift build -c "$CONFIGURATION" --product "$EXECUTABLE_NAME"
 BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
 APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
+APP_VERSION="${VISION_CLICKER_VERSION:-0.1.1}"
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+GIT_BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+if [[ "$GIT_COMMIT" != "unknown" && -n "$(git status --porcelain 2>/dev/null)" ]]; then
+    GIT_COMMIT="$GIT_COMMIT-dirty"
+fi
+
+set_plist_string() {
+    local key="$1"
+    local value="$2"
+    local plist="$3"
+
+    /usr/libexec/PlistBuddy -c "Set :$key $value" "$plist" >/dev/null 2>&1 \
+        || /usr/libexec/PlistBuddy -c "Add :$key string $value" "$plist" >/dev/null
+}
 
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 cp "$BIN_DIR/$EXECUTABLE_NAME" "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 cp "$ROOT_DIR/Packaging/Info.plist" "$APP_DIR/Contents/Info.plist"
+set_plist_string "CFBundleShortVersionString" "$APP_VERSION" "$APP_DIR/Contents/Info.plist"
+set_plist_string "CFBundleVersion" "$GIT_BUILD_NUMBER" "$APP_DIR/Contents/Info.plist"
+set_plist_string "VisionClickerBuildBranch" "$GIT_BRANCH" "$APP_DIR/Contents/Info.plist"
+set_plist_string "VisionClickerBuildCommit" "$GIT_COMMIT" "$APP_DIR/Contents/Info.plist"
 if [[ -f "$ROOT_DIR/Packaging/AgentAutoAccept.icns" ]]; then
     cp "$ROOT_DIR/Packaging/AgentAutoAccept.icns" "$APP_DIR/Contents/Resources/AgentAutoAccept.icns"
 fi
@@ -49,4 +69,4 @@ fi
 
 codesign --force --deep --sign "$SIGN_IDENTITY" "${CODE_SIGN_ARGS[@]}" "$APP_DIR" >/dev/null
 
-echo "Built $APP_DIR"
+echo "Built $APP_DIR ($APP_VERSION, $GIT_COMMIT, $GIT_BRANCH)"
