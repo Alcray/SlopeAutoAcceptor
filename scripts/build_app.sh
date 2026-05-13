@@ -16,7 +16,16 @@ cd "$ROOT_DIR"
 swift build -c "$CONFIGURATION" --product "$EXECUTABLE_NAME"
 BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"
 APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
-APP_VERSION="${VISION_CLICKER_VERSION:-0.1.1}"
+if [[ -n "${VISION_CLICKER_VERSION:-}" ]]; then
+    APP_VERSION="$VISION_CLICKER_VERSION"
+else
+    LATEST_VERSION_TAG="$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)"
+    if [[ -n "$LATEST_VERSION_TAG" ]]; then
+        APP_VERSION="${LATEST_VERSION_TAG#v}"
+    else
+        APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Packaging/Info.plist" 2>/dev/null || echo 0.1.2)"
+    fi
+fi
 GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 GIT_BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"

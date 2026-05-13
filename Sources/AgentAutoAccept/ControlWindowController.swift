@@ -14,6 +14,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         var isCursorTabSwitchingEnabled: Bool
         var cursorTabCount: Int
         var cursorTabChangeInterval: TimeInterval
+        var isCheckingForUpdates: Bool
     }
 
     struct Inputs {
@@ -34,6 +35,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
     var onRunOnce: (() -> Void)?
     var onRunCursorTabs: (() -> Void)?
     var onShowActivity: (() -> Void)?
+    var onCheckForUpdates: (() -> Void)?
 
     private var isProgrammaticUpdate = false
 
@@ -44,6 +46,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         action: nil
     )
     private let versionLabel = NSTextField(labelWithString: AppVersion.current.displayText)
+    private let checkUpdatesButton = NSButton(title: "Check for Updates", target: nil, action: nil)
     private let statusLabel = NSTextField(labelWithString: "")
     private let regionLabel = NSTextField(labelWithString: "")
     private let permissionLabel = NSTextField(labelWithString: "")
@@ -87,6 +90,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         modeControl.setWidth(120, forSegment: 1)
 
         targetField.placeholderString = "Run, Fetch"
+        targetField.toolTip = "Separate labels with commas, for example: Run, Accept, Retry"
         intervalField.placeholderString = "2.0"
         confidenceField.placeholderString = "0.20"
         cursorTabCountField.placeholderString = "3"
@@ -94,6 +98,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
 
         accessibilityButton.bezelStyle = .rounded
         screenButton.bezelStyle = .rounded
+        checkUpdatesButton.bezelStyle = .rounded
         pickRegionButton.bezelStyle = .rounded
         showRegionButton.bezelStyle = .rounded
         runOnceButton.bezelStyle = .rounded
@@ -114,8 +119,13 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
 
+        let versionRow = NSStackView(views: [versionLabel, checkUpdatesButton])
+        versionRow.orientation = .horizontal
+        versionRow.alignment = .centerY
+        versionRow.spacing = 10
+
         content.addArrangedSubview(title)
-        content.addArrangedSubview(versionLabel)
+        content.addArrangedSubview(versionRow)
         content.addArrangedSubview(statusLabel)
         content.addArrangedSubview(modeControl)
         content.addArrangedSubview(grid)
@@ -143,7 +153,12 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         window.center()
 
         NSLayoutConstraint.activate([
-            content.widthAnchor.constraint(equalToConstant: 512)
+            content.widthAnchor.constraint(equalToConstant: 512),
+            targetField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
+            intervalField.widthAnchor.constraint(equalToConstant: 72),
+            confidenceField.widthAnchor.constraint(equalToConstant: 72),
+            cursorTabCountField.widthAnchor.constraint(equalToConstant: 72),
+            cursorTabChangeIntervalField.widthAnchor.constraint(equalToConstant: 72)
         ])
 
         super.init(window: window)
@@ -171,6 +186,8 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         accessibilityButton.action = #selector(requestAccessibility)
         screenButton.target = self
         screenButton.action = #selector(requestScreenCapture)
+        checkUpdatesButton.target = self
+        checkUpdatesButton.action = #selector(checkForUpdates)
         pickRegionButton.target = self
         pickRegionButton.action = #selector(pickRegion)
         showRegionButton.target = self
@@ -224,6 +241,8 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         cursorTabCountField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
         cursorTabChangeIntervalField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
         modeControl.isEnabled = true
+        checkUpdatesButton.title = state.isCheckingForUpdates ? "Checking..." : "Check for Updates"
+        checkUpdatesButton.isEnabled = !state.isCheckingForUpdates
     }
 
     @objc private func modeChanged() {
@@ -283,6 +302,10 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
 
     @objc private func showActivity() {
         onShowActivity?()
+    }
+
+    @objc private func checkForUpdates() {
+        onCheckForUpdates?()
     }
 
     func controlTextDidChange(_ notification: Notification) {

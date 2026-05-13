@@ -18,6 +18,19 @@ swift run AgentAutoAcceptSelfTest
 sh scripts/build_app.sh
 ```
 
+For a dry run of the GitHub release flow:
+
+```bash
+scripts/release.sh --dry-run
+```
+
+Release version policy:
+
+- Default to the next patch version: `0.x.(y+1)`.
+- Do not create `0.(x+1).0`, `1.0.0`, or any skipped version unless explicitly requested.
+- Use `scripts/release.sh` or `scripts/release.sh patch` for normal releases.
+- Use `ALLOW_NON_PATCH_BUMP=1` only when a non-patch version was explicitly requested.
+
 Then test:
 
 1. Open `dist/Vision Clicker.app`.
@@ -39,6 +52,8 @@ Then test:
 
 - Local builds use `scripts/build_app.sh`.
 - Local installs use `scripts/install_app.sh`.
+- GitHub releases normally use `scripts/release.sh`, which creates the next patch release.
+- `scripts/release.sh` requires an authenticated GitHub CLI session and publishes a `vX.Y.Z` GitHub Release with a zipped macOS app asset.
 - The internal executable is `VisionClicker`; the app bundle is `Vision Clicker.app`.
 - The bundle identifier is `dev.visionclicker.app`.
 
