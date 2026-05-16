@@ -14,6 +14,9 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         var isCursorTabSwitchingEnabled: Bool
         var cursorTabCount: Int
         var cursorTabChangeInterval: TimeInterval
+        var autoRegionModel: String
+        var autoRegionURL: String
+        var isAutoPickingRegion: Bool
         var isCheckingForUpdates: Bool
     }
 
@@ -24,6 +27,8 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         var isCursorTabSwitchingEnabled: Bool
         var cursorTabCount: Int
         var cursorTabChangeInterval: TimeInterval
+        var autoRegionModel: String
+        var autoRegionURL: String
     }
 
     var onModeSelected: ((AutomationMode) -> Void)?
@@ -31,9 +36,11 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
     var onRequestAccessibility: (() -> Void)?
     var onRequestScreenCapture: (() -> Void)?
     var onPickRegion: (() -> Void)?
+    var onAutoPickRegion: (() -> Void)?
     var onShowRegion: (() -> Void)?
     var onRunOnce: (() -> Void)?
     var onRunCursorTabs: (() -> Void)?
+    var onShowTestingGround: (() -> Void)?
     var onShowActivity: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
 
@@ -57,11 +64,15 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
     private let cursorTabSwitchingCheckbox = NSButton(checkboxWithTitle: "Enabled", target: nil, action: nil)
     private let cursorTabCountField = NSTextField(string: "1")
     private let cursorTabChangeIntervalField = NSTextField(string: "0.35")
+    private let autoRegionModelField = NSTextField(string: "moondream")
+    private let autoRegionURLField = NSTextField(string: "http://localhost:11434")
 
     private let accessibilityButton = NSButton(title: "Accessibility", target: nil, action: nil)
     private let screenButton = NSButton(title: "Screen Recording", target: nil, action: nil)
     private let pickRegionButton = NSButton(title: "Pick Region", target: nil, action: nil)
+    private let autoPickRegionButton = NSButton(title: "Auto Region", target: nil, action: nil)
     private let showRegionButton = NSButton(title: "Show Region", target: nil, action: nil)
+    private let testingGroundButton = NSButton(title: "Test Ground", target: nil, action: nil)
     private let runOnceButton = NSButton(title: "Run Once", target: nil, action: nil)
     private let runCursorTabsButton = NSButton(title: "Run Tabs", target: nil, action: nil)
     private let activityButton = NSButton(title: "Activity Log", target: nil, action: nil)
@@ -95,12 +106,16 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         confidenceField.placeholderString = "0.20"
         cursorTabCountField.placeholderString = "3"
         cursorTabChangeIntervalField.placeholderString = "0.35"
+        autoRegionModelField.placeholderString = "moondream"
+        autoRegionURLField.placeholderString = "http://localhost:11434"
 
         accessibilityButton.bezelStyle = .rounded
         screenButton.bezelStyle = .rounded
         checkUpdatesButton.bezelStyle = .rounded
         pickRegionButton.bezelStyle = .rounded
+        autoPickRegionButton.bezelStyle = .rounded
         showRegionButton.bezelStyle = .rounded
+        testingGroundButton.bezelStyle = .rounded
         runOnceButton.bezelStyle = .rounded
         runCursorTabsButton.bezelStyle = .rounded
         activityButton.bezelStyle = .rounded
@@ -111,7 +126,9 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
             [Self.makeLabel("Min Confidence"), confidenceField],
             [Self.makeLabel("Change Cursor Tabs"), cursorTabSwitchingCheckbox],
             [Self.makeLabel("Cursor Tabs"), cursorTabCountField],
-            [Self.makeLabel("Tab Change Delay (s)"), cursorTabChangeIntervalField]
+            [Self.makeLabel("Tab Change Delay (s)"), cursorTabChangeIntervalField],
+            [Self.makeLabel("VLM Model"), autoRegionModelField],
+            [Self.makeLabel("VLM URL"), autoRegionURLField]
         ])
         grid.rowSpacing = 8
         grid.columnSpacing = 10
@@ -137,13 +154,18 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         permissionRow.spacing = 10
         content.addArrangedSubview(permissionRow)
 
-        let actionRow = NSStackView(views: [pickRegionButton, showRegionButton, runOnceButton, runCursorTabsButton, activityButton])
+        let regionRow = NSStackView(views: [pickRegionButton, autoPickRegionButton, showRegionButton, testingGroundButton])
+        regionRow.orientation = .horizontal
+        regionRow.spacing = 10
+        content.addArrangedSubview(regionRow)
+
+        let actionRow = NSStackView(views: [runOnceButton, runCursorTabsButton, activityButton])
         actionRow.orientation = .horizontal
         actionRow.spacing = 10
         content.addArrangedSubview(actionRow)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 430),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -158,7 +180,9 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
             intervalField.widthAnchor.constraint(equalToConstant: 72),
             confidenceField.widthAnchor.constraint(equalToConstant: 72),
             cursorTabCountField.widthAnchor.constraint(equalToConstant: 72),
-            cursorTabChangeIntervalField.widthAnchor.constraint(equalToConstant: 72)
+            cursorTabChangeIntervalField.widthAnchor.constraint(equalToConstant: 72),
+            autoRegionModelField.widthAnchor.constraint(greaterThanOrEqualToConstant: 180),
+            autoRegionURLField.widthAnchor.constraint(greaterThanOrEqualToConstant: 220)
         ])
 
         super.init(window: window)
@@ -182,6 +206,12 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         cursorTabChangeIntervalField.target = self
         cursorTabChangeIntervalField.action = #selector(inputsChanged)
         cursorTabChangeIntervalField.delegate = self
+        autoRegionModelField.target = self
+        autoRegionModelField.action = #selector(inputsChanged)
+        autoRegionModelField.delegate = self
+        autoRegionURLField.target = self
+        autoRegionURLField.action = #selector(inputsChanged)
+        autoRegionURLField.delegate = self
         accessibilityButton.target = self
         accessibilityButton.action = #selector(requestAccessibility)
         screenButton.target = self
@@ -190,8 +220,12 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         checkUpdatesButton.action = #selector(checkForUpdates)
         pickRegionButton.target = self
         pickRegionButton.action = #selector(pickRegion)
+        autoPickRegionButton.target = self
+        autoPickRegionButton.action = #selector(autoPickRegion)
         showRegionButton.target = self
         showRegionButton.action = #selector(showRegion)
+        testingGroundButton.target = self
+        testingGroundButton.action = #selector(showTestingGround)
         runOnceButton.target = self
         runOnceButton.action = #selector(runOnce)
         runCursorTabsButton.target = self
@@ -233,13 +267,24 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         if cursorTabChangeIntervalField.currentEditor() == nil {
             cursorTabChangeIntervalField.stringValue = String(format: "%.2f", state.cursorTabChangeInterval)
         }
+        if autoRegionModelField.currentEditor() == nil {
+            autoRegionModelField.stringValue = state.autoRegionModel
+        }
+        if autoRegionURLField.currentEditor() == nil {
+            autoRegionURLField.stringValue = state.autoRegionURL
+        }
 
         showRegionButton.isEnabled = state.regionText != "Not selected"
+        pickRegionButton.isEnabled = !state.running
+        autoPickRegionButton.title = state.isAutoPickingRegion ? "Picking..." : "Auto Region"
+        autoPickRegionButton.isEnabled = !state.running
         runOnceButton.isEnabled = !state.running
         runCursorTabsButton.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
         cursorTabSwitchingCheckbox.isEnabled = !state.running
         cursorTabCountField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
         cursorTabChangeIntervalField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
+        autoRegionModelField.isEnabled = !state.running
+        autoRegionURLField.isEnabled = !state.running
         modeControl.isEnabled = true
         checkUpdatesButton.title = state.isCheckingForUpdates ? "Checking..." : "Check for Updates"
         checkUpdatesButton.isEnabled = !state.isCheckingForUpdates
@@ -261,6 +306,8 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         let isCursorTabSwitchingEnabled = cursorTabSwitchingCheckbox.state == .on
         let cursorTabCount = min(max(Int(cursorTabCountField.stringValue) ?? 1, 1), 40)
         let cursorTabChangeInterval = min(max(Double(cursorTabChangeIntervalField.stringValue) ?? 0.35, 0.05), 5.0)
+        let autoRegionModel = autoRegionModelField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let autoRegionURL = autoRegionURLField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
 
         onInputsChanged?(
             Inputs(
@@ -269,7 +316,9 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
                 confidenceThreshold: confidence,
                 isCursorTabSwitchingEnabled: isCursorTabSwitchingEnabled,
                 cursorTabCount: cursorTabCount,
-                cursorTabChangeInterval: cursorTabChangeInterval
+                cursorTabChangeInterval: cursorTabChangeInterval,
+                autoRegionModel: autoRegionModel.isEmpty ? "moondream" : autoRegionModel,
+                autoRegionURL: autoRegionURL.isEmpty ? "http://localhost:11434" : autoRegionURL
             )
         )
     }
@@ -286,8 +335,17 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         onPickRegion?()
     }
 
+    @objc private func autoPickRegion() {
+        commitPendingInputs()
+        onAutoPickRegion?()
+    }
+
     @objc private func showRegion() {
         onShowRegion?()
+    }
+
+    @objc private func showTestingGround() {
+        onShowTestingGround?()
     }
 
     @objc private func runOnce() {

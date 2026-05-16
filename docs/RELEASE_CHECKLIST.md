@@ -3,8 +3,8 @@
 ## Product Surface
 
 - App name is `Vision Clicker`.
-- The UI is OCR-only.
-- No OpenAI, Ollama, model, API key, or setup controls are visible.
+- OCR remains the only click detector.
+- Experimental Auto Region controls are clearly separate from OCR clicking.
 - Activity Log remains available for debugging.
 - README, User Guide, and Privacy docs describe the OCR-only product.
 
@@ -41,12 +41,16 @@ Then test:
 6. Run **Show Region**.
 7. Run **Run Once**.
 8. Confirm the app clicks the button and restores the cursor.
-9. Confirm **Run Tabs** is disabled while **Change Cursor Tabs** is off.
-10. In Cursor, open at least two tabs, turn on **Change Cursor Tabs**, set **Cursor Tabs** to `2`, and run **Run Tabs**.
-11. Confirm the app clicks the visible button on each tab and returns to the starting tab.
-12. Switch to **Live** and confirm the Activity Log says Live is using Cursor tab sweep, then logs keyboard-event creation for each tab change.
-13. Raise **Tab Change Delay** and confirm the Activity Log reports the configured delay.
-14. Confirm the selected region avoids nearby log text such as `Running` or `Auto-Run` when using fuzzy OCR.
+9. Open **Test Ground** and verify the mock agent window cycles through different button labels.
+10. With Ollama running and `moondream` pulled, run **Auto Region** against the Testing Ground window.
+11. Confirm **Auto Region** saves and highlights a small region around the approval control.
+12. Confirm OCR still handles the actual click with **Run Once** after Auto Region selects the region.
+13. Confirm **Run Tabs** is disabled while **Change Cursor Tabs** is off.
+14. In Cursor, open at least two tabs, turn on **Change Cursor Tabs**, set **Cursor Tabs** to `2`, and run **Run Tabs**.
+15. Confirm the app clicks the visible button on each tab and returns to the starting tab.
+16. Switch to **Live** and confirm the Activity Log says Live is using Cursor tab sweep, then logs keyboard-event creation for each tab change.
+17. Raise **Tab Change Delay** and confirm the Activity Log reports the configured delay.
+18. Confirm the selected region avoids nearby log text such as `Running` or `Auto-Run` when using fuzzy OCR.
 
 ## Packaging Notes
 

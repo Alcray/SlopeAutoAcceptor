@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let activityLogStore = ActivityLogStore()
     private var settings: VisionAutomationSettings
     private let automationEngine = VisionAutomationEngine()
+    private let autoRegionPicker = AutoRegionPickerService()
     private let regionSelector = ScreenRegionSelector()
     private let regionHighlighter = ScreenRegionHighlighter()
     private let updateChecker = GitHubReleaseUpdateChecker()
@@ -12,8 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var controlWindow: ControlWindowController?
     private var recentWindow: TextWindowController?
+    private var testingGroundWindow: TestingGroundWindowController?
     private var recentEvents: [String] = []
     private var isRunInProgress = false
+    private var isAutoPickingRegion = false
     private var isCheckingForUpdates = false
 
     override init() {
@@ -43,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if restoredLiveMode {
             appendEvent("Started paused instead of restoring Live mode.")
         }
-        appendEvent("Controls ready: Pick Region, Show Region, Run Once, Run Tabs.")
+        appendEvent("Controls ready: Pick Region, Auto Region, Show Region, Test Ground, Run Once, Run Tabs.")
         checkForUpdates(isAutomatic: true)
     }
 
@@ -85,6 +88,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func autoPickRegion() {
+        guard !isAutoPickingRegion else {
+            appendEvent("Auto-region pick already in progress.")
+            return
+        }
+
+        let snapshot = settings
+        isAutoPickingRegion = true
+        appendEvent("Auto-region pick requested with Ollama model \(snapshot.autoRegionModel) at \(snapshot.autoRegionURL).")
+        appendEvent("Temporarily hiding Vision Clicker control/activity windows before full-screen VLM capture.")
+        refreshUI()
+
+        let shouldRestoreControlWindow = controlWindow?.window?.isVisible == true
+        let shouldRestoreActivityWindow = recentWindow?.window?.isVisible == true
+        controlWindow?.window?.orderOut(nil)
+        recentWindow?.window?.orderOut(nil)
+
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try await Task.sleep(nanoseconds: 250_000_000)
+                let result = try await self.autoRegionPicker.pickRegion(settings: snapshot)
+                await MainActor.run {
+                    self.finishAutoRegionPick(
+                        result: .success(result),
+                        shouldRestoreControlWindow: shouldRestoreControlWindow,
+                        shouldRestoreActivityWindow: shouldRestoreActivityWindow
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    self.finishAutoRegionPick(
+                        result: .failure(error),
+                        shouldRestoreControlWindow: shouldRestoreControlWindow,
+                        shouldRestoreActivityWindow: shouldRestoreActivityWindow
+                    )
+                }
+            }
+        }
+    }
+
     @objc private func showRegion() {
         guard let quartzRect = settings.captureRegionQuartz else {
             appendEvent("No region selected yet.")
@@ -98,6 +145,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         regionHighlighter.show(appKitRect: appKitRect)
         appendEvent("Showing selected region: \(regionDescription()).")
         refreshUI()
+    }
+
+    @objc private func showTestingGround() {
+        let controller = testingGroundWindow ?? TestingGroundWindowController()
+        testingGroundWindow = controller
+        NSApp.activate(ignoringOtherApps: true)
+        controller.showWindow(nil)
+        appendEvent("Testing Ground opened with mock agent approval buttons.")
     }
 
     @objc private func toggleLiveMode() {
@@ -183,6 +238,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings.isCursorTabSwitchingEnabled = inputs.isCursorTabSwitchingEnabled
         settings.cursorTabCount = min(max(inputs.cursorTabCount, 1), 40)
         settings.cursorTabChangeInterval = min(max(inputs.cursorTabChangeInterval, 0.05), 5.0)
+        settings.autoRegionModel = inputs.autoRegionModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "moondream" : inputs.autoRegionModel
+        settings.autoRegionURL = inputs.autoRegionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "http://localhost:11434" : inputs.autoRegionURL
 
         persistSettings()
         automationEngine.apply(settings: settings)
@@ -253,7 +310,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("Show Control Window", #selector(showControlWindow)))
+        menu.addItem(actionItem("Testing Ground", #selector(showTestingGround)))
         menu.addItem(actionItem("Pick Region...", #selector(pickRegion)))
+        menu.addItem(actionItem("Auto Pick Region", #selector(autoPickRegion)))
         menu.addItem(actionItem("Show Region", #selector(showRegion)))
         menu.addItem(actionItem("Run Once", #selector(runOnce)))
         if settings.isCursorTabSwitchingEnabled {
@@ -299,7 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             mode: settings.mode,
             statusText: statusSummaryText(),
             regionText: regionDescription(),
-            running: isRunInProgress,
+            running: isRunInProgress || isAutoPickingRegion,
             hasAccessibility: MousePermission.hasAccess,
             hasScreenCapture: ScreenCapturePermission.hasAccess,
             targetLabel: settings.targetLabel,
@@ -308,6 +367,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isCursorTabSwitchingEnabled: settings.isCursorTabSwitchingEnabled,
             cursorTabCount: settings.cursorTabCount,
             cursorTabChangeInterval: settings.cursorTabChangeInterval,
+            autoRegionModel: settings.autoRegionModel,
+            autoRegionURL: settings.autoRegionURL,
+            isAutoPickingRegion: isAutoPickingRegion,
             isCheckingForUpdates: isCheckingForUpdates
         )
         controlWindow?.update(with: state)
@@ -331,6 +393,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onPickRegion = { [weak self] in
             self?.pickRegion()
         }
+        controller.onAutoPickRegion = { [weak self] in
+            self?.autoPickRegion()
+        }
         controller.onShowRegion = { [weak self] in
             self?.showRegion()
         }
@@ -339,6 +404,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.onRunCursorTabs = { [weak self] in
             self?.runCursorTabs()
+        }
+        controller.onShowTestingGround = { [weak self] in
+            self?.showTestingGround()
         }
         controller.onShowActivity = { [weak self] in
             self?.showActivityLog()
@@ -410,6 +478,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func finishAutoRegionPick(
+        result: Result<AutoRegionPickResult, Error>,
+        shouldRestoreControlWindow: Bool,
+        shouldRestoreActivityWindow: Bool
+    ) {
+        isAutoPickingRegion = false
+
+        switch result {
+        case let .success(pick):
+            settings.captureRegionQuartz = pick.quartzRect
+            persistSettings()
+            automationEngine.apply(settings: settings)
+
+            let confidenceText = pick.confidence.map { String(format: "%.2f", $0) } ?? "unknown"
+            appendEvent("Auto-region selected \(regionDescription()) from \(Int(pick.screenshotPixelSize.width))x\(Int(pick.screenshotPixelSize.height)) screenshot.")
+            appendEvent("VLM candidate label: \(pick.label ?? "unknown"), confidence: \(confidenceText).\(pick.reason.map { " \($0)" } ?? "")")
+            appendEvent("VLM raw response: \(pick.rawResponse)")
+            regionHighlighter.show(appKitRect: pick.appKitRect)
+        case let .failure(error):
+            appendEvent("Auto-region pick failed: \(error.localizedDescription)")
+        }
+
+        refreshUI()
+        if shouldRestoreControlWindow {
+            showControlWindow()
+        }
+        if shouldRestoreActivityWindow {
+            showActivityLog()
+        }
+    }
+
     private func promptForUpdate(_ update: AvailableUpdate) {
         NSApp.activate(ignoringOtherApps: true)
 
@@ -470,6 +569,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusSummaryText() -> String {
+        if isAutoPickingRegion {
+            return "Picking Region"
+        }
+
         switch settings.mode {
         case .paused:
             return "Paused"
@@ -526,7 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let accessibility = MousePermission.hasAccess ? "granted" : "missing"
         let screenRecording = ScreenCapturePermission.hasAccess ? "granted" : "missing"
         let tabSwitching = settings.isCursorTabSwitchingEnabled ? "on" : "off"
-        return "Ready. Version: \(AppVersion.current.detailedText). Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Cursor tab switching: \(tabSwitching). Cursor tabs: \(settings.cursorTabCount). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
+        return "Ready. Version: \(AppVersion.current.detailedText). Mode: \(settings.mode.displayName). Target labels: \(settings.targetLabel). Cursor tab switching: \(tabSwitching). Cursor tabs: \(settings.cursorTabCount). Auto-region model: \(settings.autoRegionModel). Region: \(regionDescription()). Permissions: Accessibility \(accessibility), Screen Recording \(screenRecording)."
     }
 
     private func modeChangeText(_ mode: AutomationMode) -> String {

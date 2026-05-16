@@ -36,6 +36,8 @@ struct VisionAutomationSettings: Codable {
     var isCursorTabSwitchingEnabled: Bool
     var cursorTabCount: Int
     var cursorTabChangeInterval: TimeInterval
+    var autoRegionModel: String
+    var autoRegionURL: String
     var captureRegionQuartz: CGRect?
 
     init(
@@ -46,6 +48,8 @@ struct VisionAutomationSettings: Codable {
         isCursorTabSwitchingEnabled: Bool = false,
         cursorTabCount: Int = 1,
         cursorTabChangeInterval: TimeInterval = 0.35,
+        autoRegionModel: String = "moondream",
+        autoRegionURL: String = "http://localhost:11434",
         captureRegionQuartz: CGRect? = nil
     ) {
         self.mode = mode
@@ -55,6 +59,8 @@ struct VisionAutomationSettings: Codable {
         self.isCursorTabSwitchingEnabled = isCursorTabSwitchingEnabled
         self.cursorTabCount = cursorTabCount
         self.cursorTabChangeInterval = cursorTabChangeInterval
+        self.autoRegionModel = autoRegionModel
+        self.autoRegionURL = autoRegionURL
         self.captureRegionQuartz = captureRegionQuartz
     }
 
@@ -66,6 +72,8 @@ struct VisionAutomationSettings: Codable {
         case isCursorTabSwitchingEnabled
         case cursorTabCount
         case cursorTabChangeInterval
+        case autoRegionModel
+        case autoRegionURL
         case captureRegionQuartz
     }
 
@@ -80,6 +88,8 @@ struct VisionAutomationSettings: Codable {
         isCursorTabSwitchingEnabled = try container.decodeIfPresent(Bool.self, forKey: .isCursorTabSwitchingEnabled) ?? defaultSettings.isCursorTabSwitchingEnabled
         cursorTabCount = try container.decodeIfPresent(Int.self, forKey: .cursorTabCount) ?? defaultSettings.cursorTabCount
         cursorTabChangeInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .cursorTabChangeInterval) ?? defaultSettings.cursorTabChangeInterval
+        autoRegionModel = try container.decodeIfPresent(String.self, forKey: .autoRegionModel) ?? defaultSettings.autoRegionModel
+        autoRegionURL = try container.decodeIfPresent(String.self, forKey: .autoRegionURL) ?? defaultSettings.autoRegionURL
         captureRegionQuartz = try container.decodeIfPresent(CGRect.self, forKey: .captureRegionQuartz)
     }
 
@@ -92,6 +102,8 @@ struct VisionAutomationSettings: Codable {
         try container.encode(isCursorTabSwitchingEnabled, forKey: .isCursorTabSwitchingEnabled)
         try container.encode(cursorTabCount, forKey: .cursorTabCount)
         try container.encode(cursorTabChangeInterval, forKey: .cursorTabChangeInterval)
+        try container.encode(autoRegionModel, forKey: .autoRegionModel)
+        try container.encode(autoRegionURL, forKey: .autoRegionURL)
         try container.encodeIfPresent(captureRegionQuartz, forKey: .captureRegionQuartz)
     }
 }
@@ -149,6 +161,8 @@ final class VisionSettingsStore {
         }
         settings.cursorTabCount = min(max(settings.cursorTabCount, 1), 40)
         settings.cursorTabChangeInterval = min(max(settings.cursorTabChangeInterval, 0.05), 5.0)
+        settings.autoRegionModel = settings.autoRegionModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "moondream" : settings.autoRegionModel
+        settings.autoRegionURL = settings.autoRegionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "http://localhost:11434" : settings.autoRegionURL
 
         return settings
     }
@@ -384,6 +398,12 @@ struct CapturedRegionImage {
     let pixelSize: CGSize
 }
 
+struct CapturedDesktopImage {
+    let pngData: Data
+    let pixelSize: CGSize
+    let quartzRect: CGRect
+}
+
 enum ScreenCaptureError: LocalizedError {
     case noPermission
     case invalidRegion
@@ -444,6 +464,36 @@ final class ScreenCaptureService {
             pngData: pngData,
             pixelSize: CGSize(width: processed.width, height: processed.height)
         )
+    }
+
+    func captureDesktopPNG(maxSide: CGFloat = 1800) throws -> CapturedDesktopImage {
+        let rect = desktopQuartzRect()
+        let capture = try capturePNG(inQuartzRect: rect, maxSide: maxSide)
+        return CapturedDesktopImage(
+            pngData: capture.pngData,
+            pixelSize: capture.pixelSize,
+            quartzRect: rect
+        )
+    }
+
+    private func desktopQuartzRect() -> CGRect {
+        let displayRects = NSScreen.screens.compactMap { screen -> CGRect? in
+            guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+                return nil
+            }
+
+            return CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value))
+        }
+
+        guard var union = displayRects.first else {
+            return NSScreen.main.map { DisplayCoordinateSpace.appKitToQuartz(rect: $0.frame) } ?? CGRect(x: 0, y: 0, width: 1, height: 1)
+        }
+
+        for rect in displayRects.dropFirst() {
+            union = union.union(rect)
+        }
+
+        return union.standardized.integral
     }
 
     private func resizedImageIfNeeded(_ image: CGImage, maxSide: CGFloat) -> CGImage? {
