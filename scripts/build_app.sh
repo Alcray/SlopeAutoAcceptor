@@ -76,6 +76,6 @@ else
     echo "Signing with identity: $SIGN_IDENTITY" >&2
 fi
 
-codesign --force --deep --sign "$SIGN_IDENTITY" "${CODE_SIGN_ARGS[@]}" "$APP_DIR" >/dev/null
+codesign --force --deep --sign "$SIGN_IDENTITY" ${CODE_SIGN_ARGS[@]+"${CODE_SIGN_ARGS[@]}"} "$APP_DIR" >/dev/null
 
 echo "Built $APP_DIR ($APP_VERSION, $GIT_COMMIT, $GIT_BRANCH)"
