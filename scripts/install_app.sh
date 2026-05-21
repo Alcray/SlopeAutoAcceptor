@@ -13,9 +13,17 @@ REVEAL_IN_FINDER="${REVEAL_IN_FINDER:-1}"
 killall VisionClicker >/dev/null 2>&1 || true
 killall AgentAutoAccept >/dev/null 2>&1 || true
 mkdir -p "$DEST_DIR"
-rm -rf "$DEST_APP"
+TEMP_APP="$(mktemp -d "$DEST_DIR/.${APP_NAME}.tmp.XXXXXX")"
+BACKUP_APP="$DEST_DIR/.${APP_NAME}.backup.$$"
+trap 'rm -rf "$TEMP_APP" "$BACKUP_APP"' EXIT
 rm -rf "$DEST_DIR/Agent AutoAccept.app"
-ditto "$SOURCE_APP" "$DEST_APP"
+ditto "$SOURCE_APP" "$TEMP_APP"
+if [[ -e "$DEST_APP" ]]; then
+    mv "$DEST_APP" "$BACKUP_APP"
+fi
+mv "$TEMP_APP" "$DEST_APP"
+rm -rf "$BACKUP_APP"
+trap - EXIT
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -f "$DEST_APP" >/dev/null 2>&1 || true
 if [[ "$REVEAL_IN_FINDER" == "1" ]]; then
