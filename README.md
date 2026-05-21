@@ -22,7 +22,7 @@ It is designed for small approval controls such as `Run`, `Fetch`, or `Retry` in
 
 ```text
 Clone git@github.com:Alcray/SlopeAutoAcceptor.git,
-then run scripts/install_app.sh from the repository root.
+then run ./install.sh from the repository root.
 ```
 
 Or install manually from Terminal:
@@ -30,10 +30,10 @@ Or install manually from Terminal:
 ```bash
 git clone git@github.com:Alcray/SlopeAutoAcceptor.git
 cd SlopeAutoAcceptor
-sh scripts/install_app.sh
+./install.sh
 ```
 
-The installer builds the app, copies it to `/Applications/Vision Clicker.app`, and launches it.
+The installer builds the app, copies it to `/Applications/Vision Clicker.app`, reveals it in Finder, and launches it. If you only run `scripts/build_app.sh`, the app stays in `dist/` and is not installed into Applications.
 
 ## Features
 
@@ -81,7 +81,7 @@ dist/Vision Clicker.app
 For a local install:
 
 ```bash
-sh scripts/install_app.sh
+./install.sh
 ```
 
 That installs and launches:
