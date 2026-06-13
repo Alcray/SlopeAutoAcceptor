@@ -541,6 +541,34 @@ struct VisionTargetScanResult {
     let missNote: String
 }
 
+struct VisionOCRTextItem {
+    let text: String
+    let normalizedText: String
+    let matchedLabel: String?
+    let matchScore: Double?
+    let matchReason: String?
+    let confidence: Double
+    let boundingBox: CGRect
+}
+
+struct VisionOCRDebugResult {
+    let imageSize: CGSize
+    let targetLabels: [String]
+    let items: [VisionOCRTextItem]
+}
+
+private struct NormalizedTargetLabel {
+    let label: String
+    let normalized: String
+    let words: [String]
+}
+
+private struct OCRTargetMatch {
+    let label: String
+    let score: Double
+    let reason: String
+}
+
 private struct ResolvedTargetCoordinates {
     let normalizedX: CGFloat
     let normalizedY: CGFloat
@@ -569,10 +597,10 @@ final class VisionModelClient {
         )
     }
 
-    private func locateTargetsWithAppleOCR(
+    func recognizeText(
         pngData: Data,
         targetLabel: String
-    ) throws -> VisionTargetScanResult {
+    ) throws -> VisionOCRDebugResult {
         guard
             let imageSource = CGImageSourceCreateWithData(pngData as CFData, nil),
             let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
@@ -580,55 +608,79 @@ final class VisionModelClient {
             throw VisionModelError.invalidResponse
         }
 
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .fast
-        request.usesLanguageCorrection = false
-        request.recognitionLanguages = ["en-US"]
-        request.minimumTextHeight = 0.01
-
+        let request = makeTextRequest()
         let targets = TargetLabelParser.labels(from: targetLabel)
+        let normalizedTargets = normalizedTargetLabels(from: targets)
 
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         try handler.perform([request])
 
-        let normalizedTargets = targets.map { label in
-            (
-                label: label,
-                normalized: normalizedOCRText(label)
-            )
-        }.filter { !$0.normalized.isEmpty }
+        let rawItems = recognizedItems(from: request)
+            .map { observation, recognized -> VisionOCRTextItem in
+                let normalizedText = normalizedOCRText(recognized.string)
 
-        let recognizedItems = (request.results ?? []).compactMap { observation -> (VNRecognizedTextObservation, VNRecognizedText)? in
-            guard let recognized = observation.topCandidates(1).first else {
+                return VisionOCRTextItem(
+                    text: recognized.string,
+                    normalizedText: normalizedText,
+                    matchedLabel: nil,
+                    matchScore: nil,
+                    matchReason: nil,
+                    confidence: Double(recognized.confidence),
+                    boundingBox: observation.boundingBox
+                )
+            }
+
+        let items = rawItems
+            .map { item -> VisionOCRTextItem in
+                guard let match = targetMatch(for: item, in: rawItems, targets: normalizedTargets) else {
+                    return item
+                }
+
+                return VisionOCRTextItem(
+                    text: item.text,
+                    normalizedText: item.normalizedText,
+                    matchedLabel: match.label,
+                    matchScore: match.score,
+                    matchReason: match.reason,
+                    confidence: item.confidence,
+                    boundingBox: item.boundingBox
+                )
+            }
+            .sorted(by: textItemScreenOrder)
+
+        return VisionOCRDebugResult(
+            imageSize: CGSize(width: image.width, height: image.height),
+            targetLabels: targets,
+            items: items
+        )
+    }
+
+    private func locateTargetsWithAppleOCR(
+        pngData: Data,
+        targetLabel: String
+    ) throws -> VisionTargetScanResult {
+        let result = try recognizeText(pngData: pngData, targetLabel: targetLabel)
+
+        let matches = result.items.compactMap { item -> VisionTargetDecision? in
+            guard let matchedLabel = item.matchedLabel else {
                 return nil
             }
 
-            return (observation, recognized)
-        }
-
-        let matches = recognizedItems.compactMap { observation, recognized -> VisionTargetDecision? in
-            let normalizedText = normalizedOCRText(recognized.string)
-            guard let matchedTarget = normalizedTargets.first(where: { target in
-                normalizedText == target.normalized || normalizedText.contains(target.normalized)
-            }) else {
-                return nil
-            }
-
-            let box = observation.boundingBox
+            let box = item.boundingBox
             let decision = VisionTargetDecision(
-                matchedLabel: matchedTarget.label,
+                matchedLabel: matchedLabel,
                 x: Double(box.midX),
                 y: Double(1 - box.midY),
-                confidence: Double(recognized.confidence),
-                note: "OCR fuzzy matched \"\(recognized.string)\" as \"\(matchedTarget.label)\""
+                confidence: item.matchScore ?? item.confidence,
+                note: "OCR button matched \"\(item.text)\" as \"\(matchedLabel)\"; OCR confidence \(String(format: "%.2f", item.confidence)).\(item.matchReason.map { " \($0)" } ?? "")"
             )
             return decision
         }
 
-        let seenText = recognizedItems
+        let seenText = result.items
             .prefix(10)
-            .map { _, recognized in
-                "\"\(recognized.string)\" \(String(format: "%.2f", recognized.confidence))"
+            .map { item in
+                "\"\(item.text)\" \(String(format: "%.2f", item.confidence))"
             }
             .joined(separator: ", ")
 
@@ -647,6 +699,159 @@ final class VisionModelClient {
         }
 
         return first.x < second.x
+    }
+
+    private func textItemScreenOrder(_ first: VisionOCRTextItem, _ second: VisionOCRTextItem) -> Bool {
+        let firstY = 1 - first.boundingBox.midY
+        let secondY = 1 - second.boundingBox.midY
+        let rowTolerance = 0.02
+        if abs(firstY - secondY) > rowTolerance {
+            return firstY < secondY
+        }
+
+        return first.boundingBox.midX < second.boundingBox.midX
+    }
+
+    private func makeTextRequest() -> VNRecognizeTextRequest {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .fast
+        request.usesLanguageCorrection = false
+        request.recognitionLanguages = ["en-US"]
+        request.minimumTextHeight = 0.01
+        return request
+    }
+
+    private func recognizedItems(
+        from request: VNRecognizeTextRequest
+    ) -> [(VNRecognizedTextObservation, VNRecognizedText)] {
+        (request.results ?? []).compactMap { observation in
+            guard let recognized = observation.topCandidates(1).first else {
+                return nil
+            }
+
+            return (observation, recognized)
+        }
+    }
+
+    private func targetMatch(
+        for item: VisionOCRTextItem,
+        in items: [VisionOCRTextItem],
+        targets: [NormalizedTargetLabel]
+    ) -> OCRTargetMatch? {
+        let rawWords = ocrWords(from: item.text)
+        let canonicalText = canonicalButtonText(item.text)
+
+        guard !canonicalText.isEmpty else {
+            return nil
+        }
+
+        let matches = targets.compactMap { target -> OCRTargetMatch? in
+            guard canonicalText == target.normalized else {
+                return nil
+            }
+
+            let allowedWords = max(target.words.count + 1, 2)
+            guard rawWords.count <= allowedWords else {
+                return nil
+            }
+
+            var score = 0.55
+            var reasons = ["exact label"]
+            let box = item.boundingBox.standardized
+
+            if box.width <= 0.35 {
+                score += 0.15
+                reasons.append("compact OCR box")
+            } else if box.width > 0.45 {
+                score -= 0.25
+                reasons.append("wide OCR box penalty")
+            }
+
+            if isButtonLikeTextBox(box) {
+                score += 0.15
+                reasons.append("button-sized text")
+            }
+
+            if hasNearbySkipLabel(leftOf: item, in: items) {
+                score += 0.15
+                reasons.append("Skip label nearby")
+            }
+
+            if item.confidence >= 0.45 {
+                score += 0.05
+                reasons.append("OCR confidence \(String(format: "%.2f", item.confidence))")
+            }
+
+            let clampedScore = min(max(score, 0), 1)
+            guard clampedScore >= 0.65 else {
+                return nil
+            }
+
+            return OCRTargetMatch(
+                label: target.label,
+                score: clampedScore,
+                reason: "Rule score \(String(format: "%.2f", clampedScore)): \(reasons.joined(separator: ", "))."
+            )
+        }
+
+        return matches.max { $0.score < $1.score }
+    }
+
+    private func isButtonLikeTextBox(_ box: CGRect) -> Bool {
+        guard box.width > 0.005, box.height > 0.005 else {
+            return false
+        }
+
+        let aspectRatio = box.width / box.height
+        return box.width <= 0.35
+            && box.height >= 0.008
+            && box.height <= 0.18
+            && aspectRatio >= 0.8
+            && aspectRatio <= 12
+    }
+
+    private func hasNearbySkipLabel(leftOf item: VisionOCRTextItem, in items: [VisionOCRTextItem]) -> Bool {
+        let box = item.boundingBox.standardized
+        return items.contains { other in
+            guard canonicalButtonText(other.text) == "skip" else {
+                return false
+            }
+
+            let otherBox = other.boundingBox.standardized
+            let rowTolerance = max(0.035, max(box.height, otherBox.height) * 1.8)
+            let horizontalGap = box.minX - otherBox.maxX
+
+            return abs(box.midY - otherBox.midY) <= rowTolerance
+                && horizontalGap >= -0.03
+                && horizontalGap <= 0.22
+        }
+    }
+
+    private func normalizedTargetLabels(from targets: [String]) -> [NormalizedTargetLabel] {
+        targets.map { label in
+            NormalizedTargetLabel(
+                label: label,
+                normalized: canonicalButtonText(label),
+                words: ocrWords(from: label)
+            )
+        }.filter { !$0.normalized.isEmpty }
+    }
+
+    private func canonicalButtonText(_ text: String) -> String {
+        canonicalButtonWords(from: text).joined()
+    }
+
+    private func canonicalButtonWords(from text: String) -> [String] {
+        ocrWords(from: text).filter { word in
+            !["return", "enter"].contains(word)
+        }
+    }
+
+    private func ocrWords(from text: String) -> [String] {
+        text
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
     }
 
     private func normalizedOCRText(_ text: String) -> String {

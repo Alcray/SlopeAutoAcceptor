@@ -42,6 +42,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
     var onRunOnce: (() -> Void)?
     var onRunCursorTabs: (() -> Void)?
     var onShowTestingGround: (() -> Void)?
+    var onShowOCRDebug: (() -> Void)?
     var onShowActivity: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
 
@@ -74,6 +75,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
     private let autoPickRegionButton = NSButton(title: "Auto Region (Beta)", target: nil, action: nil)
     private let showRegionButton = NSButton(title: "Show Region", target: nil, action: nil)
     private let testingGroundButton = NSButton(title: "Test Ground", target: nil, action: nil)
+    private let ocrDebugButton = NSButton(title: "OCR View", target: nil, action: nil)
     private let runOnceButton = NSButton(title: "Run Once", target: nil, action: nil)
     private let runCursorTabsButton = NSButton(title: "Run Tabs", target: nil, action: nil)
     private let activityButton = NSButton(title: "Activity Log", target: nil, action: nil)
@@ -117,6 +119,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         autoPickRegionButton.bezelStyle = .rounded
         showRegionButton.bezelStyle = .rounded
         testingGroundButton.bezelStyle = .rounded
+        ocrDebugButton.bezelStyle = .rounded
         runOnceButton.bezelStyle = .rounded
         runCursorTabsButton.bezelStyle = .rounded
         activityButton.bezelStyle = .rounded
@@ -160,7 +163,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         regionRow.spacing = 10
         content.addArrangedSubview(regionRow)
 
-        let actionRow = NSStackView(views: [runOnceButton, runCursorTabsButton, activityButton])
+        let actionRow = NSStackView(views: [runOnceButton, runCursorTabsButton, ocrDebugButton, activityButton])
         actionRow.orientation = .horizontal
         actionRow.spacing = 10
         content.addArrangedSubview(actionRow)
@@ -227,6 +230,8 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         showRegionButton.action = #selector(showRegion)
         testingGroundButton.target = self
         testingGroundButton.action = #selector(showTestingGround)
+        ocrDebugButton.target = self
+        ocrDebugButton.action = #selector(showOCRDebug)
         runOnceButton.target = self
         runOnceButton.action = #selector(runOnce)
         runCursorTabsButton.target = self
@@ -280,6 +285,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         autoPickRegionButton.title = state.isAutoPickingRegion ? "Picking..." : "Auto Region (Beta)"
         autoPickRegionButton.isEnabled = !state.running
         runOnceButton.isEnabled = !state.running
+        ocrDebugButton.isEnabled = state.regionText != "Not selected" && !state.running
         runCursorTabsButton.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
         cursorTabSwitchingCheckbox.isEnabled = !state.running
         cursorTabCountField.isEnabled = state.isCursorTabSwitchingEnabled && !state.running
@@ -351,6 +357,11 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
 
     @objc private func showTestingGround() {
         onShowTestingGround?()
+    }
+
+    @objc private func showOCRDebug() {
+        commitPendingInputs()
+        onShowOCRDebug?()
     }
 
     @objc private func runOnce() {

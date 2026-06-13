@@ -5,6 +5,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let activityLogStore = ActivityLogStore()
     private var settings: VisionAutomationSettings
     private let automationEngine = VisionAutomationEngine()
+    private let captureService = ScreenCaptureService()
+    private let ocrDebugClient = VisionModelClient()
     private let autoRegionPicker = AutoRegionPickerService()
     private let regionSelector = ScreenRegionSelector()
     private let regionHighlighter = ScreenRegionHighlighter()
@@ -15,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controlWindow: ControlWindowController?
     private var recentWindow: TextWindowController?
     private var testingGroundWindow: TestingGroundWindowController?
+    private var ocrDebugWindow: OCRDebugWindowController?
     private var recentEvents: [String] = []
     private var isRunInProgress = false
     private var isAutoPickingRegion = false
@@ -48,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if restoredLiveMode {
             appendEvent("Started paused instead of restoring Live mode.")
         }
-        appendEvent("Controls ready: Pick Region, Auto Region (Beta), Show Region, Test Ground, Run Once, Run Tabs.")
+        appendEvent("Controls ready: Pick Region, Auto Region (Beta), Show Region, OCR View, Test Ground, Run Once, Run Tabs.")
         checkForUpdates(isAutomatic: true)
     }
 
@@ -155,6 +158,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         controller.showWindow(nil)
         appendEvent("Testing Ground opened with mock agent approval buttons.")
+    }
+
+    @objc private func showOCRDebug() {
+        guard let storedRegion = settings.captureRegionQuartz else {
+            appendEvent("No region selected yet.")
+            refreshUI()
+            return
+        }
+
+        let region = DisplayCoordinateSpace.normalizedQuartz(rect: storedRegion)
+        let targetLabel = settings.targetLabel
+        appendEvent("OCR View requested for \(regionDescription()).")
+
+        let shouldRestoreControlWindow = controlWindow?.window?.isVisible == true
+        let shouldRestoreActivityWindow = recentWindow?.window?.isVisible == true
+        controlWindow?.window?.orderOut(nil)
+        recentWindow?.window?.orderOut(nil)
+        ocrDebugWindow?.window?.orderOut(nil)
+        refreshUI()
+
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try await Task.sleep(nanoseconds: 200_000_000)
+                let capture = try self.captureService.capturePNG(inQuartzRect: region)
+                let result = try self.ocrDebugClient.recognizeText(
+                    pngData: capture.pngData,
+                    targetLabel: targetLabel
+                )
+
+                await MainActor.run {
+                    do {
+                        self.restoreWindowsHiddenForOCRDebug(
+                            shouldRestoreControlWindow: shouldRestoreControlWindow,
+                            shouldRestoreActivityWindow: shouldRestoreActivityWindow
+                        )
+                        let controller = try OCRDebugWindowController(
+                            pngData: capture.pngData,
+                            result: result
+                        )
+                        self.ocrDebugWindow = controller
+                        NSApp.activate(ignoringOtherApps: true)
+                        controller.showWindow(nil)
+                        let matchCount = result.items.filter { $0.matchedLabel != nil }.count
+                        self.appendEvent("OCR View opened with \(result.items.count) OCR item\(result.items.count == 1 ? "" : "s") and \(matchCount) target match\(matchCount == 1 ? "" : "es").")
+                    } catch {
+                        self.restoreWindowsHiddenForOCRDebug(
+                            shouldRestoreControlWindow: shouldRestoreControlWindow,
+                            shouldRestoreActivityWindow: shouldRestoreActivityWindow
+                        )
+                        self.appendEvent("OCR View failed: \(error.localizedDescription)")
+                    }
+                    self.refreshUI()
+                }
+            } catch {
+                await MainActor.run {
+                    self.restoreWindowsHiddenForOCRDebug(
+                        shouldRestoreControlWindow: shouldRestoreControlWindow,
+                        shouldRestoreActivityWindow: shouldRestoreActivityWindow
+                    )
+                    self.appendEvent("OCR View failed: \(error.localizedDescription)")
+                    self.refreshUI()
+                }
+            }
+        }
     }
 
     @objc private func toggleLiveMode() {
@@ -297,6 +368,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateControlWindow()
     }
 
+    private func restoreWindowsHiddenForOCRDebug(
+        shouldRestoreControlWindow: Bool,
+        shouldRestoreActivityWindow: Bool
+    ) {
+        if shouldRestoreControlWindow {
+            showControlWindow()
+        }
+        if shouldRestoreActivityWindow {
+            showActivityLog()
+        }
+    }
+
     private func rebuildMenu() {
         let menu = NSMenu()
         menu.addItem(disabledItem("Vision Clicker: \(statusSummaryText())"))
@@ -316,6 +399,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(actionItem("Pick Region...", #selector(pickRegion)))
         menu.addItem(actionItem("Auto Pick Region (Beta)", #selector(autoPickRegion)))
         menu.addItem(actionItem("Show Region", #selector(showRegion)))
+        menu.addItem(actionItem("OCR View", #selector(showOCRDebug)))
         menu.addItem(actionItem("Run Once", #selector(runOnce)))
         if settings.isCursorTabSwitchingEnabled {
             menu.addItem(actionItem("Run Cursor Tabs", #selector(runCursorTabs)))
@@ -410,6 +494,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         controller.onShowTestingGround = { [weak self] in
             self?.showTestingGround()
+        }
+        controller.onShowOCRDebug = { [weak self] in
+            self?.showOCRDebug()
         }
         controller.onShowActivity = { [weak self] in
             self?.showActivityLog()

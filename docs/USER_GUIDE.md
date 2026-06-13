@@ -56,6 +56,8 @@ Use it to test:
 - whether **Auto Region** finds a useful region before OCR starts clicking
 - whether nearby false-positive text is inside or outside the selected region
 
+Use **OCR View** after selecting a region to see the current Apple OCR output drawn over the captured screenshot. Green boxes are target-label matches; gray boxes are other OCR text in the same capture.
+
 ## Target Labels
 
 Use the **Target Labels** field for one or more labels:
