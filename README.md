@@ -17,6 +17,8 @@ Vision Clicker is a local macOS menu bar app that watches a user-selected screen
 
 It is designed for small approval controls such as `Run`, `Fetch`, or `Retry` in coding-agent UIs.
 
+![Vision Clicker demo](docs/assets/vision-clicker-real-ui-demo.gif)
+
 
 ## Install by asking your AI agent:
 
