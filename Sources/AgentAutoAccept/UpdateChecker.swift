@@ -183,9 +183,11 @@ private struct GitHubRelease: Decodable {
     var primaryDownloadURL: URL? {
         let preferredAsset = assets.first { asset in
             let name = asset.name.lowercased()
+            return name.hasSuffix(".zip")
+        } ?? assets.first { asset in
+            let name = asset.name.lowercased()
             return name.hasSuffix(".dmg")
                 || name.hasSuffix(".pkg")
-                || name.hasSuffix(".zip")
         } ?? assets.first
 
         guard let rawURL = preferredAsset?.browserDownloadURL else {

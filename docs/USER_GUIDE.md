@@ -99,6 +99,12 @@ Set **Tab Change Delay** to control how long the app waits after each Cursor tab
 
 The sweep activates Cursor when it can find the running app. Accessibility permission is required for the tab keyboard shortcuts and the click.
 
+## Updates
+
+**Check for Updates** looks for published GitHub Releases. When a release includes the standard macOS zip asset, Vision Clicker can download it, replace the current app bundle, quit, and reopen the updated app.
+
+If automatic installation fails or the release does not include a supported zip asset, Vision Clicker falls back to opening the GitHub release page.
+
 ## Activity Log
 
 The Activity Log records captures, OCR decisions, computed screen coordinates, and the mouse trace. If a click lands wrong, the log should make the coordinate path visible enough to debug.
