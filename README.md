@@ -17,6 +17,8 @@ Vision Clicker is a local macOS menu bar app that watches a user-selected screen
 
 It is designed for small approval controls such as `Run`, `Fetch`, or `Retry` in coding-agent UIs.
 
+![Vision Clicker demo](docs/assets/vision-clicker-real-ui-demo.gif)
+
 
 ## Install by asking your AI agent:
 
@@ -38,17 +40,21 @@ The installer builds the app, copies it to `/Applications/Vision Clicker.app`, r
 ## Features
 
 - Draw a capture rectangle, similar to `cmd + shift + 4`.
+- Experimentally auto-pick a capture region with a local Ollama VLM, while keeping OCR as the click detector.
 - Highlight the saved region before running.
 - Detect exact target labels with on-device Apple OCR.
 - Support multiple labels, for example `Run, Fetch, Retry`.
 - Click the detected label and restore the cursor.
 - Run once manually or keep scanning in Live mode.
 - Optionally sweep across Cursor tabs with `cmd + shift + ]`, click each visible target, then return with `cmd + shift + [`.
+- Open a Testing Ground window with mock coding-agent prompts and changing approval buttons.
 - Work with multi-monitor layouts, including displays above or beside the main display.
 
 ## Privacy
 
-Vision Clicker uses Apple Vision OCR on your Mac. It does not require an API key, does not download a model, and does not send captured images to a server.
+Normal Vision Clicker scans use Apple Vision OCR on your Mac. They do not require an API key, do not download a model, and do not send selected-region captures to a server.
+
+The experimental **Auto Region** picker can send one full-desktop screenshot to a local Ollama VLM endpoint, defaulting to `http://localhost:11434` and model `moondream`. OCR still performs the actual target detection and click after the region is selected.
 
 The app stores settings locally in `UserDefaults`, including the selected region, target labels, scan interval, and confidence threshold.
 
@@ -95,8 +101,10 @@ That installs and launches:
 5. Click **Pick Region** and drag around the UI area that contains the target button.
 6. Use **Show Region** to verify the saved rectangle.
 7. Click **Run Once** to test.
-8. For Cursor, turn on **Change Cursor Tabs**, set **Cursor Tabs** and **Tab Change Delay**, then click **Run Tabs**.
-9. Switch to **Live** when the single run behaves correctly.
+8. For the VLM experiment, run `ollama serve`, pull a vision model such as `moondream`, then click **Auto Region**.
+9. Use **Test Ground** to open a mock coding-agent window with changing approval controls.
+10. For Cursor, turn on **Change Cursor Tabs**, set **Cursor Tabs** and **Tab Change Delay**, then click **Run Tabs**.
+11. Switch to **Live** when the single run behaves correctly.
 
 OCR matching is intentionally fuzzy after light normalization, so `Run` can match OCR text such as `Running` or `Auto-Run`. Keep the selected region tight around the approval controls to avoid nearby log text.
 
