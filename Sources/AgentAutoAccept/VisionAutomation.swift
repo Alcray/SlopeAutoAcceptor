@@ -529,12 +529,16 @@ final class ScreenCaptureService {
 }
 
 struct VisionTargetDecision {
-    let isFound: Bool
     let matchedLabel: String?
     let x: Double
     let y: Double
     let confidence: Double
     let note: String
+}
+
+struct VisionTargetScanResult {
+    let decisions: [VisionTargetDecision]
+    let missNote: String
 }
 
 private struct ResolvedTargetCoordinates {
@@ -555,20 +559,20 @@ enum VisionModelError: LocalizedError {
 }
 
 final class VisionModelClient {
-    func locateTarget(
+    func locateTargets(
         pngData: Data,
         targetLabel: String
-    ) async throws -> VisionTargetDecision {
-        try locateTargetWithAppleOCR(
+    ) async throws -> VisionTargetScanResult {
+        try locateTargetsWithAppleOCR(
             pngData: pngData,
             targetLabel: targetLabel
         )
     }
 
-    private func locateTargetWithAppleOCR(
+    private func locateTargetsWithAppleOCR(
         pngData: Data,
         targetLabel: String
-    ) throws -> VisionTargetDecision {
+    ) throws -> VisionTargetScanResult {
         guard
             let imageSource = CGImageSourceCreateWithData(pngData as CFData, nil),
             let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
@@ -602,7 +606,7 @@ final class VisionModelClient {
             return (observation, recognized)
         }
 
-        let matches = recognizedItems.compactMap { observation, recognized -> (VisionTargetDecision, Double)? in
+        let matches = recognizedItems.compactMap { observation, recognized -> VisionTargetDecision? in
             let normalizedText = normalizedOCRText(recognized.string)
             guard let matchedTarget = normalizedTargets.first(where: { target in
                 normalizedText == target.normalized || normalizedText.contains(target.normalized)
@@ -612,18 +616,13 @@ final class VisionModelClient {
 
             let box = observation.boundingBox
             let decision = VisionTargetDecision(
-                isFound: true,
                 matchedLabel: matchedTarget.label,
                 x: Double(box.midX),
                 y: Double(1 - box.midY),
                 confidence: Double(recognized.confidence),
                 note: "OCR fuzzy matched \"\(recognized.string)\" as \"\(matchedTarget.label)\""
             )
-            return (decision, Double(recognized.confidence))
-        }
-
-        if let best = matches.max(by: { $0.1 < $1.1 })?.0 {
-            return best
+            return decision
         }
 
         let seenText = recognizedItems
@@ -633,16 +632,21 @@ final class VisionModelClient {
             }
             .joined(separator: ", ")
 
-        return VisionTargetDecision(
-            isFound: false,
-            matchedLabel: nil,
-            x: 0,
-            y: 0,
-            confidence: 0,
-            note: seenText.isEmpty
+        return VisionTargetScanResult(
+            decisions: matches.sorted(by: screenOrder),
+            missNote: seenText.isEmpty
                 ? "OCR saw no text in the selected region."
                 : "OCR saw: \(seenText)"
         )
+    }
+
+    private func screenOrder(_ first: VisionTargetDecision, _ second: VisionTargetDecision) -> Bool {
+        let rowTolerance = 0.02
+        if abs(first.y - second.y) > rowTolerance {
+            return first.y < second.y
+        }
+
+        return first.x < second.x
     }
 
     private func normalizedOCRText(_ text: String) -> String {
@@ -1241,45 +1245,63 @@ final class VisionAutomationEngine {
         emit("Captured \(Int(capture.pixelSize.width))x\(Int(capture.pixelSize.height)) [\(trigger), Apple OCR].")
         try Task.checkCancellation()
 
-        let decision = try await modelClient.locateTarget(
+        let scanResult = try await modelClient.locateTargets(
             pngData: capture.pngData,
             targetLabel: settings.targetLabel
         )
         try Task.checkCancellation()
         let targetLabels = TargetLabelParser.labels(from: settings.targetLabel).joined(separator: ", ")
 
-        guard decision.isFound else {
-            emit("Target labels [\(targetLabels)] not found. \(decision.note)")
+        guard !scanResult.decisions.isEmpty else {
+            emit("Target labels [\(targetLabels)] not found. \(scanResult.missNote)")
             return false
         }
 
-        guard decision.confidence >= settings.confidenceThreshold else {
-            emit("Target confidence too low (\(String(format: "%.2f", decision.confidence))). \(decision.note)")
+        let decisions = scanResult.decisions.filter { $0.confidence >= settings.confidenceThreshold }
+        guard !decisions.isEmpty else {
+            let best = scanResult.decisions.max { $0.confidence < $1.confidence }
+            let confidence = best.map { String(format: "%.2f", $0.confidence) } ?? "0.00"
+            emit("Target confidence too low; best candidate was \(confidence).\(best.map { " \($0.note)" } ?? "")")
             return false
         }
 
-        let resolved = resolveCoordinates(
-            decision: decision,
-            capturePixelSize: capture.pixelSize,
-            region: region
-        )
-        let matchedLabel = decision.matchedLabel ?? targetLabels
-        emit("Decision for \"\(matchedLabel)\": raw=(\(format(decision.x)),\(format(decision.y))) \(resolved.source), confidence \(format(decision.confidence)).\(decision.note.isEmpty ? "" : " \(decision.note)")")
+        if decisions.count > 1 {
+            emit("Found \(decisions.count) target labels in the selected region; clicking them in screen order without returning to the starting pointer between clicks.")
+        }
 
-        let localPoint = CGPoint(
-            x: resolved.normalizedX * region.width,
-            y: resolved.normalizedY * region.height
-        )
-        let clickPoint = CGPoint(
-            x: region.minX + localPoint.x,
-            y: region.minY + localPoint.y
-        )
+        for (index, decision) in decisions.enumerated() {
+            try Task.checkCancellation()
+            let resolved = resolveCoordinates(
+                decision: decision,
+                capturePixelSize: capture.pixelSize,
+                region: region
+            )
+            let matchedLabel = decision.matchedLabel ?? targetLabels
+            let sequenceText = decisions.count > 1 ? " \(index + 1)/\(decisions.count)" : ""
+            emit("Decision\(sequenceText) for \"\(matchedLabel)\": raw=(\(format(decision.x)),\(format(decision.y))) \(resolved.source), confidence \(format(decision.confidence)).\(decision.note.isEmpty ? "" : " \(decision.note)")")
 
-        try Task.checkCancellation()
-        let trace = try clickService.click(atQuartzPoint: clickPoint, restorePointer: true)
-        let appKitPoint = DisplayCoordinateSpace.quartzToAppKit(point: clickPoint)
-        emit("Clicked \"\(matchedLabel)\" local \(format(localPoint)) -> screen \(format(appKitPoint)) app, \(format(clickPoint)) quartz.")
-        emit("Mouse trace: \(format(trace)).")
+            let localPoint = CGPoint(
+                x: resolved.normalizedX * region.width,
+                y: resolved.normalizedY * region.height
+            )
+            let clickPoint = CGPoint(
+                x: region.minX + localPoint.x,
+                y: region.minY + localPoint.y
+            )
+
+            let trace = try clickService.click(
+                atQuartzPoint: clickPoint,
+                restorePointer: decisions.count == 1
+            )
+            let appKitPoint = DisplayCoordinateSpace.quartzToAppKit(point: clickPoint)
+            emit("Clicked\(sequenceText) \"\(matchedLabel)\" local \(format(localPoint)) -> screen \(format(appKitPoint)) app, \(format(clickPoint)) quartz.")
+            emit("Mouse trace\(sequenceText): \(format(trace)).")
+
+            if index < decisions.count - 1 {
+                try await sleep(seconds: 0.12)
+            }
+        }
+
         return true
     }
 
