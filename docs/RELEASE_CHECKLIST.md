@@ -56,7 +56,8 @@ Then test:
 
 - Local builds use `scripts/build_app.sh`.
 - Local installs use `scripts/install_app.sh`.
-- GitHub releases normally use `scripts/release.sh`, which creates the next patch release.
+- Merging a PR into `main` automatically runs the GitHub Actions release workflow, which publishes the next patch release.
+- Manual GitHub releases use `scripts/release.sh`, which creates the next patch release.
 - `scripts/release.sh` requires an authenticated GitHub CLI session and publishes a `vX.Y.Z` GitHub Release with a zipped macOS app asset.
 - The internal executable is `VisionClicker`; the app bundle is `Vision Clicker.app`.
 - The bundle identifier is `dev.visionclicker.app`.
