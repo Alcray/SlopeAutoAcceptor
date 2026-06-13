@@ -70,7 +70,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
     private let accessibilityButton = NSButton(title: "Accessibility", target: nil, action: nil)
     private let screenButton = NSButton(title: "Screen Recording", target: nil, action: nil)
     private let pickRegionButton = NSButton(title: "Pick Region", target: nil, action: nil)
-    private let autoPickRegionButton = NSButton(title: "Auto Region", target: nil, action: nil)
+    private let autoPickRegionButton = NSButton(title: "Auto Region (Beta)", target: nil, action: nil)
     private let showRegionButton = NSButton(title: "Show Region", target: nil, action: nil)
     private let testingGroundButton = NSButton(title: "Test Ground", target: nil, action: nil)
     private let runOnceButton = NSButton(title: "Run Once", target: nil, action: nil)
@@ -276,7 +276,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
 
         showRegionButton.isEnabled = state.regionText != "Not selected"
         pickRegionButton.isEnabled = !state.running
-        autoPickRegionButton.title = state.isAutoPickingRegion ? "Picking..." : "Auto Region"
+        autoPickRegionButton.title = state.isAutoPickingRegion ? "Picking..." : "Auto Region (Beta)"
         autoPickRegionButton.isEnabled = !state.running
         runOnceButton.isEnabled = !state.running
         runCursorTabsButton.isEnabled = state.isCursorTabSwitchingEnabled && !state.running

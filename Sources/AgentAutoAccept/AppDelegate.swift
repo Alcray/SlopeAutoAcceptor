@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if restoredLiveMode {
             appendEvent("Started paused instead of restoring Live mode.")
         }
-        appendEvent("Controls ready: Pick Region, Auto Region, Show Region, Test Ground, Run Once, Run Tabs.")
+        appendEvent("Controls ready: Pick Region, Auto Region (Beta), Show Region, Test Ground, Run Once, Run Tabs.")
         checkForUpdates(isAutomatic: true)
     }
 
@@ -312,7 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(actionItem("Show Control Window", #selector(showControlWindow)))
         menu.addItem(actionItem("Testing Ground", #selector(showTestingGround)))
         menu.addItem(actionItem("Pick Region...", #selector(pickRegion)))
-        menu.addItem(actionItem("Auto Pick Region", #selector(autoPickRegion)))
+        menu.addItem(actionItem("Auto Pick Region (Beta)", #selector(autoPickRegion)))
         menu.addItem(actionItem("Show Region", #selector(showRegion)))
         menu.addItem(actionItem("Run Once", #selector(runOnce)))
         if settings.isCursorTabSwitchingEnabled {
