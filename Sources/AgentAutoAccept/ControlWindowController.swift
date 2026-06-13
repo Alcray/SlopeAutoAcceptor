@@ -18,6 +18,7 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         var autoRegionURL: String
         var isAutoPickingRegion: Bool
         var isCheckingForUpdates: Bool
+        var isInstallingUpdate: Bool
     }
 
     struct Inputs {
@@ -286,8 +287,12 @@ final class ControlWindowController: NSWindowController, NSTextFieldDelegate {
         autoRegionModelField.isEnabled = !state.running
         autoRegionURLField.isEnabled = !state.running
         modeControl.isEnabled = true
-        checkUpdatesButton.title = state.isCheckingForUpdates ? "Checking..." : "Check for Updates"
-        checkUpdatesButton.isEnabled = !state.isCheckingForUpdates
+        if state.isInstallingUpdate {
+            checkUpdatesButton.title = "Installing..."
+        } else {
+            checkUpdatesButton.title = state.isCheckingForUpdates ? "Checking..." : "Check for Updates"
+        }
+        checkUpdatesButton.isEnabled = !state.isCheckingForUpdates && !state.isInstallingUpdate
     }
 
     @objc private func modeChanged() {

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let regionSelector = ScreenRegionSelector()
     private let regionHighlighter = ScreenRegionHighlighter()
     private let updateChecker = GitHubReleaseUpdateChecker()
+    private let updateInstaller = AppUpdateInstaller()
 
     private var statusItem: NSStatusItem?
     private var controlWindow: ControlWindowController?
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isRunInProgress = false
     private var isAutoPickingRegion = false
     private var isCheckingForUpdates = false
+    private var isInstallingUpdate = false
 
     override init() {
         settings = settingsStore.load()
@@ -299,11 +301,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(disabledItem("Vision Clicker: \(statusSummaryText())"))
         menu.addItem(disabledItem("Version: \(AppVersion.current.displayText)"))
-        let updateItem = actionItem(
-            isCheckingForUpdates ? "Checking for Updates..." : "Check for Updates...",
-            #selector(checkForUpdatesFromMenu)
-        )
-        updateItem.isEnabled = !isCheckingForUpdates
+        let updateTitle = isInstallingUpdate
+            ? "Installing Update..."
+            : (isCheckingForUpdates ? "Checking for Updates..." : "Check for Updates...")
+        let updateItem = actionItem(updateTitle, #selector(checkForUpdatesFromMenu))
+        updateItem.isEnabled = !isCheckingForUpdates && !isInstallingUpdate
         menu.addItem(updateItem)
         menu.addItem(disabledItem("Engine: Apple OCR"))
         menu.addItem(disabledItem("Region: \(regionDescription())"))
@@ -370,7 +372,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             autoRegionModel: settings.autoRegionModel,
             autoRegionURL: settings.autoRegionURL,
             isAutoPickingRegion: isAutoPickingRegion,
-            isCheckingForUpdates: isCheckingForUpdates
+            isCheckingForUpdates: isCheckingForUpdates,
+            isInstallingUpdate: isInstallingUpdate
         )
         controlWindow?.update(with: state)
     }
@@ -419,6 +422,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func checkForUpdates(isAutomatic: Bool) {
+        guard !isInstallingUpdate else {
+            if !isAutomatic {
+                appendEvent("Update install already in progress.")
+            }
+            return
+        }
+
         guard !isCheckingForUpdates else {
             if !isAutomatic {
                 appendEvent("Update check already in progress.")
@@ -515,9 +525,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "Vision Clicker \(update.tagName) is available"
-        alert.informativeText = "You are running \(AppVersion.current.displayText). Open the GitHub release to download the update?"
-        alert.addButton(withTitle: "Update")
+        if update.downloadURL == nil {
+            alert.informativeText = "You are running \(AppVersion.current.displayText). This release does not include an app archive, so Vision Clicker can open GitHub for a manual update."
+            alert.addButton(withTitle: "Open GitHub")
+        } else {
+            alert.informativeText = "You are running \(AppVersion.current.displayText). Vision Clicker can download and install this update, then quit and reopen."
+            alert.addButton(withTitle: "Install Update")
+        }
         alert.addButton(withTitle: "Later")
+        if update.downloadURL != nil {
+            alert.addButton(withTitle: "Open GitHub")
+        }
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else {
+            if response == .alertThirdButtonReturn {
+                NSWorkspace.shared.open(update.actionURL)
+                appendEvent("Opened update URL: \(update.actionURL.absoluteString)")
+            } else {
+                appendEvent("Update postponed: \(update.tagName).")
+            }
+            return
+        }
+
+        guard update.downloadURL != nil else {
+            NSWorkspace.shared.open(update.actionURL)
+            appendEvent("Opened update URL: \(update.actionURL.absoluteString)")
+            return
+        }
+
+        installUpdate(update)
+    }
+
+    private func installUpdate(_ update: AvailableUpdate) {
+        guard !isInstallingUpdate else {
+            appendEvent("Update install already in progress.")
+            return
+        }
+
+        isInstallingUpdate = true
+        appendEvent("Downloading and installing update \(update.tagName).")
+        refreshUI()
+
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try await self.updateInstaller.install(update: update)
+                await MainActor.run {
+                    self.appendEvent("Update installer launched for \(update.tagName). Vision Clicker will quit and reopen.")
+                    self.refreshUI()
+                    NSApp.terminate(nil)
+                }
+            } catch {
+                await MainActor.run {
+                    self.isInstallingUpdate = false
+                    self.appendEvent("Automatic update failed: \(error.localizedDescription)")
+                    self.refreshUI()
+                    self.showAutomaticUpdateFailedAlert(error, update: update)
+                }
+            }
+        }
+    }
+
+    private func showAutomaticUpdateFailedAlert(_ error: Error, update: AvailableUpdate) {
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Could not install the update automatically"
+        alert.informativeText = "\(error.localizedDescription)\n\nOpen the GitHub release instead?"
+        alert.addButton(withTitle: "Open GitHub")
+        alert.addButton(withTitle: "OK")
 
         guard alert.runModal() == .alertFirstButtonReturn else {
             appendEvent("Update postponed: \(update.tagName).")
@@ -569,6 +650,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func statusSummaryText() -> String {
+        if isInstallingUpdate {
+            return "Installing Update"
+        }
+
         if isAutoPickingRegion {
             return "Picking Region"
         }
